@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "db:push": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
     "test": "tsx --test --test-reporter=spec $(find src -name '*.test.ts')"
   },
   "dependencies": {

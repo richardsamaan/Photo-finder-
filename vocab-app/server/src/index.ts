@@ -5,8 +5,10 @@ import fs from "node:fs";
 import { env } from "./env.js";
 import { runMigrations } from "./db/migrate.js";
 import { healthRouter } from "./routes/health.js";
+import { ensureLocalUser } from "./modules/users/localUser.js";
 
 runMigrations();
+ensureLocalUser();
 
 const app = express();
 app.use(cors({ origin: env.CORS_ORIGIN }));

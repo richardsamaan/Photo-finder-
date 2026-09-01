@@ -1,8 +1,5 @@
 import { sqlite } from "./client.js";
-
-// Hand-written, idempotent SQL migrations (same pattern as the main app).
-// Phase 2 adds the vocabulary schema's CREATE TABLE statements here.
-const statements: string[] = [];
+import { statements } from "./schemaSql.js";
 
 export function runMigrations() {
   const run = sqlite.transaction(() => {
