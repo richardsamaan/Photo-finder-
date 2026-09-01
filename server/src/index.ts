@@ -9,6 +9,7 @@ import { jobsRouter } from "./routes/jobs.js";
 import { productsRouter } from "./routes/products.js";
 import { exportRouter } from "./routes/export.js";
 import { cacheRouter } from "./routes/cache.js";
+import { quickSearchRouter } from "./routes/quickSearch.js";
 import { isSearchConfigured } from "./services/searchProviders/index.js";
 
 runMigrations();
@@ -34,6 +35,7 @@ app.use("/api/jobs", jobsRouter);
 app.use("/api/products", productsRouter);
 app.use("/api/export", exportRouter);
 app.use("/api/cache", cacheRouter);
+app.use("/api/quick-search", quickSearchRouter);
 
 // Serve the built frontend in production (single-process deployment).
 const webDist = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "web", "dist");

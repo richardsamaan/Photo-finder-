@@ -10,6 +10,45 @@ master catalog PDF, and a downloadable ZIP.
 configured, the app tells you so explicitly and blocks the search step
 instead of inventing results.
 
+For a one-off lookup that doesn't need the full CSV import → review → PDF
+flow, there's also a **Quick Search** tool - see §1a.
+
+---
+
+## 1a. Quick Search (single-item lookup)
+
+A lightweight, dependency-free single HTML page (`web/public/quick-search.html`,
+plain HTML/JS, no build step of its own) for finding photos of one item
+without going through the import wizard. Linked from the main app's navbar,
+and served at `/quick-search.html` in both dev (via Vite's `public/` dir) and
+production (Express static, since `vite build` copies `public/` into `dist/`).
+
+- **Fields**: item name/description (required), an optional colour name
+  (e.g. "burgundy"), and an optional colour hex code (e.g. `#7B1E3A`, with a
+  colour-picker synced to the text field).
+- **Search depth**: instead of one query, `queryBuilder.buildQuickSearchQueries`
+  generates several variations (raw query, `+ "product photo"`,
+  `+ "high resolution"`, `+ "official product image"`, `+ "studio photo white
+  background"`, plus colour-qualified passes when a colour name is given) and
+  the results are pooled together (deduped by image URL, target ~40
+  candidates) rather than stopping at the first query's results.
+- **Quality filtering**: known stock-photo domains (iStock, Shutterstock,
+  Getty, Alamy, etc.) and URLs containing "watermark" are dropped. Every
+  remaining candidate's real pixel dimensions are used (from the provider's
+  image-search API when available - Google CSE `searchType=image` / Bing
+  Image Search v7, both return width/height directly - otherwise probed via
+  a bounded, concurrency-limited HTTP fetch + `sharp` metadata read) and
+  anything under 800px on its shortest side is rejected.
+- **Ranking**: survivors are sorted by resolution (bigger wins); when a
+  colour hex is supplied, each candidate's dominant colour is sampled
+  (`sharp().resize(1,1)`) and compared to the target via RGB Euclidean
+  distance, which nudges closer colour matches upward without ever zeroing
+  out an otherwise strong, high-resolution photo. The top 8-10 are returned.
+- **Backend**: `POST /api/quick-search` (`server/src/routes/quickSearch.ts` →
+  `server/src/services/imageSearch.ts`), reusing the existing
+  `SearchProvider` adapters and the same "provider not configured" error
+  path as the main pipeline - never fabricated results.
+
 ---
 
 ## 1. Architecture
@@ -175,7 +214,18 @@ To enable real search, pick **one** provider, get its API key, set
 
 ## 6. Testing performed
 
-**Automated (31 passing tests, `npm test -w server`):**
+**Automated (42 passing tests, `npm test -w server`):**
+- Quick Search (`imageSearch.test.ts`, 11 tests, added with this feature):
+  query-variation generation and de-dupe; real width/height decoding from an
+  in-memory `sharp`-generated image at both above- and below-threshold
+  resolutions (`dimensionsFromBuffer`, no network needed); dominant-colour
+  extraction recovers a solid fill's RGB value within a few units
+  (`dominantColourFromBuffer`); hex parsing accepts `#RRGGBB`/`RRGGBB` and
+  rejects malformed input; RGB distance is 0 for identical colours and grows
+  with difference; stock-photo domains and watermark URLs are flagged;
+  ranking prefers higher resolution, boosts closer colour matches without
+  ever zeroing out a far match, and lets a big high-quality photo outrank a
+  small perfectly-colour-matched one.
 - Style-code matching: exact tokens, separator-tolerant matches (`5051-2345`
   vs `50512345`), and rejection of substrings inside unrelated longer numbers.
 - Colour matching + spelling synonyms (grey/gray) + conflicting-colour
@@ -225,6 +275,32 @@ To enable real search, pick **one** provider, get its API key, set
   `catalog/` segment; picking a new candidate or re-searching didn't
   invalidate a previously-approved local image. All three fixed and
   re-verified live.
+
+**Quick Search - manual/integration testing (this session):**
+- `npm run dev` (both API and Vite dev server) → `curl` against
+  `POST /api/quick-search`: confirmed `query is required.` (400) on an empty
+  body, `colourHex must be a hex code like #1A1A1A.` (400) on a malformed
+  hex, and - with `SEARCH_PROVIDER=none` (no key available in this sandbox;
+  same documented network constraint as §7) - the same honest `Search
+  provider "none" is not configured...` (400) as the main pipeline, proving
+  it never falls back to fake results.
+- Confirmed `/quick-search.html` is served both by the Vite dev server (from
+  `web/public/`) and, after `vite build`, from the built `web/dist/` output
+  that Express serves in production.
+- Playwright screenshots (pre-installed Chromium) against the live dev
+  server: the form (item name, colour name, colour hex + synced colour
+  picker) renders and accepts input; submitting with no provider configured
+  shows the red error banner inline instead of silently failing; with
+  `page.route` mocking `POST /api/quick-search` to return three ranked
+  candidates, the results grid renders correctly - rank badges, resolution
+  ("900 × 1200px"), source domain, and a working "Source ↗" link per card.
+  Also confirmed the new "Quick Search" navbar link renders correctly on the
+  main app's Dashboard without disrupting the existing layout.
+- A real internet search-provider API key and broad outbound access were not
+  available in this sandbox (same limitation as §7), so the actual provider
+  HTTP calls (Google CSE image search, Bing Image Search) could not be
+  exercised end-to-end; do one small real query after adding a key before
+  relying on this in production.
 
 ---
 
