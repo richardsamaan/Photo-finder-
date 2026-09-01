@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: true, // bind 0.0.0.0, not just localhost - required for GitHub
+    // Codespaces / devcontainer port forwarding to reach the dev server.
     port: 5173,
     proxy: {
       "/api": {
