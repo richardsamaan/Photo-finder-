@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { env } from "./env.js";
 import { runMigrations } from "./db/migrate.js";
 import { healthRouter } from "./routes/health.js";
+import { assessmentRouter } from "./routes/assessment.js";
 import { ensureLocalUser } from "./modules/users/localUser.js";
 
 runMigrations();
@@ -15,6 +16,7 @@ app.use(cors({ origin: env.CORS_ORIGIN }));
 app.use(express.json({ limit: "2mb" }));
 
 app.use("/api/health", healthRouter);
+app.use("/api/assessment", assessmentRouter);
 
 // Serve the built frontend in production (single-process deployment).
 const webDist = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "web", "dist");

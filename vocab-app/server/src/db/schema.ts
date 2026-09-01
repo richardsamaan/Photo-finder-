@@ -138,6 +138,9 @@ export const userVocabulary = sqliteTable(
     // Mastered words are never deleted - archiving only removes them from
     // the active review queue while keeping full history intact.
     archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+    // True when the assessment determined the user already knew this word
+    // before using the app - excluded from "words learned" statistics.
+    knownBeforeApp: integer("known_before_app", { mode: "boolean" }).notNull().default(false),
     firstEncounteredAt: text("first_encountered_at").notNull().default(sql`(current_timestamp)`),
     learnedAt: text("learned_at"),
     lastReviewedAt: text("last_reviewed_at"),
@@ -189,6 +192,61 @@ export const vocabularyReviewHistory = sqliteTable(
   (t) => ({
     userVocabIdx: index("review_history_user_vocab_idx").on(t.userVocabularyId),
     reviewedAtIdx: index("review_history_reviewed_at_idx").on(t.reviewedAt),
+  })
+);
+
+// ============================================================
+// Initial vocabulary assessment - discovers what the user already knows
+// vs. what's genuinely new to them. Never overwritten: each assessment
+// (the first one and any later re-assessment) is its own session row, so
+// vocabulary growth over time stays queryable.
+// ============================================================
+
+export const assessmentSessions = sqliteTable(
+  "assessment_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    status: text("status", { enum: ["in_progress", "completed"] })
+      .notNull()
+      .default("in_progress"),
+    // True only for the user's first-ever completed assessment - this is
+    // the "initial_known_words" / "initial_learning_words" baseline that
+    // later statistics compare against to show genuine vocabulary growth.
+    isBaseline: integer("is_baseline", { mode: "boolean" }).notNull().default(false),
+    startedAt: text("started_at").notNull().default(sql`(current_timestamp)`),
+    completedAt: text("completed_at"),
+    estimatedVocabularySize: integer("estimated_vocabulary_size"),
+    estimatedLevel: text("estimated_level"),
+    confidence: text("confidence", { enum: ["low", "medium", "high"] }),
+    knownWordCount: integer("known_word_count"),
+    learningWordCount: integer("learning_word_count"),
+  },
+  (t) => ({
+    userIdx: index("assessment_sessions_user_idx").on(t.userId),
+  })
+);
+
+export const assessmentResponses = sqliteTable(
+  "assessment_responses",
+  {
+    id: text("id").primaryKey(),
+    assessmentSessionId: text("assessment_session_id").notNull(),
+    wordId: text("word_id").notNull(),
+    difficultyLevel: text("difficulty_level", { enum: ["beginner", "intermediate", "advanced"] }).notNull(),
+    questionType: text("question_type", { enum: ["multiple_choice"] })
+      .notNull()
+      .default("multiple_choice"),
+    selectedOption: text("selected_option"), // null when the user chose "I don't know"
+    correctOption: text("correct_option").notNull(),
+    isCorrect: integer("is_correct", { mode: "boolean" }).notNull(),
+    dontKnow: integer("dont_know", { mode: "boolean" }).notNull().default(false),
+    responseTimeMs: integer("response_time_ms"),
+    answeredAt: text("answered_at").notNull().default(sql`(current_timestamp)`),
+  },
+  (t) => ({
+    sessionIdx: index("assessment_responses_session_idx").on(t.assessmentSessionId),
+    wordIdx: index("assessment_responses_word_idx").on(t.wordId),
   })
 );
 

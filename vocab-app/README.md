@@ -15,31 +15,44 @@ etc. later means adding rows, not redesigning tables.
 
 ---
 
-## Status: Phase 2 - database & vocabulary data foundation
+## Status: Phase 3 - initial vocabulary assessment
 
 What exists right now:
 
 - Express + TypeScript API server with a health endpoint and SQLite wiring
   (via `better-sqlite3` + Drizzle ORM).
-- The full language-agnostic database schema: `languages`, `words`,
-  `word_senses`, `word_relations`, `users`, `user_settings`,
-  `user_vocabulary`, `vocabulary_review_history`, `vocabulary_collections`,
-  `collection_words`, `learning_sessions`. See
+- The full language-agnostic database schema, now including assessment
+  storage: `languages`, `words`, `word_senses`, `word_relations`, `users`,
+  `user_settings`, `user_vocabulary` (with a `known_before_app` flag),
+  `assessment_sessions`, `assessment_responses`, `vocabulary_review_history`,
+  `vocabulary_collections`, `collection_words`, `learning_sessions`. See
   `docs/database-architecture.md` for the entity relationships and the
   reasoning behind the shared-dictionary/personal-vocabulary split.
+- **Initial vocabulary assessment**: an adaptive multiple-choice test
+  (`/assessment`) that moves up or down in difficulty based on each
+  answer, distinguishes "I don't know" from a wrong guess, and never
+  leaks the correct answer to the client. On completion it produces a
+  clearly-labeled *estimate* (never a hardcoded number) of vocabulary
+  size, an illustrative CEFR-style level, and a confidence rating - then
+  adds unrecognized words to `user_vocabulary` as `new` (the first
+  learning bank) while marking confidently-known words as `familiar` with
+  `known_before_app = true`, so they're never counted as "learned through
+  the app." The first completed assessment is flagged `is_baseline` for
+  future genuine-growth statistics; later re-assessments are separate
+  session rows, so history is never overwritten.
 - A single local user is created automatically on first server start
-  (single-local-user mode, per the approved Phase 2 scope) - every personal
-  table already keys off a real `user_id`, so real multi-user auth later is
+  (single-local-user mode, per the approved scope) - every personal table
+  already keys off a real `user_id`, so real multi-user auth later is
   additive, not a schema redesign.
-- A small, original (non-copyrighted) English seed dataset - 25 words
+- A small, original (non-copyrighted) English seed dataset - 45 words
   across all three difficulty tiers, multiple parts of speech, a
   multi-sense word (`bank`), and a few synonym/antonym relations - loaded
   via `npm run db:seed`.
-- 11 database tests covering language/word/sense creation, duplicate
-  prevention, review history, archiving instead of deleting, collections,
-  and independent per-user vocabulary state - all passing.
-- React + TypeScript + Vite + Tailwind frontend, mobile-first, with a single
-  Dashboard page that confirms the frontend can reach the backend.
+- 32 tests (11 database + 21 assessment: adaptive tier movement, scoring,
+  and full end-to-end session flow) - all passing.
+- React + TypeScript + Vite + Tailwind frontend, mobile-first, with a
+  Dashboard page (health check + assessment entry point) and a full
+  intro → question → result assessment flow.
 - Same conventions as the root Product Image Finder app (npm workspaces,
   hand-written idempotent SQL migrations, typed fetch client, `.env`-based
   config) so the two apps are easy to reason about side by side.
@@ -48,8 +61,8 @@ What exists right now:
   powers optional Conversation/Content-Generation features in later phases.
 
 Not built yet (later phases, per the approved architecture): authentication,
-vocabulary assessment, mastery engine, spaced repetition, testing modes,
-dashboard stats, AI conversation, AI content generation, export, reminders.
+mastery engine, spaced repetition, other testing modes, dashboard stats, AI
+conversation, AI content generation, export, reminders.
 
 ---
 
@@ -126,22 +139,32 @@ NODE_ENV=production npm run start
 
 ---
 
-## Testing performed (Phase 2)
+## Testing performed (Phase 3)
 
-- `npm run test -w server` - 11/11 database tests passing (language/word
-  creation, multi-sense words, duplicate user-word prevention, review
-  history, archiving instead of deleting, collections, multi-collection
-  membership, foreign-key enforcement, independent per-user state).
+- `npm run test -w server` - 32/32 tests passing: the 11 Phase 2 database
+  tests plus 21 new ones covering adaptive tier movement, scoring
+  (known/learning split, vocabulary-size estimate, confidence levels), and
+  a full end-to-end assessment flow (session start, real seeded questions,
+  multi-tier coverage, correct/incorrect/"I don't know" recording,
+  preserved history across sessions, known-before-app words excluded from
+  "learned," unknown words added as `new`, no duplicate `user_vocabulary`
+  rows on re-assessment, and the baseline flag set only on the first
+  completed session).
 - `npm run build` (server + web) - both compile cleanly with no TypeScript
   errors.
-- `npm run db:push` then `npm run db:seed`, twice in a row - confirmed
-  idempotent (word/language/user counts unchanged on the second run).
-- Inspected the seeded SQLite file directly: English language row present,
-  local user + default settings present (`preferred_language_id` correctly
-  pointing at English), 25 words across all three difficulty tiers,
-  `bank` carrying its two distinct senses, and all 5 seeded synonym/antonym
-  relations resolved correctly.
-- Started `npm run dev:server`, confirmed `GET /api/health` still responds
-  correctly with the new schema in place.
+- Fresh `npm run db:push` + `npm run db:seed` (45 words) verified from
+  scratch, then the full test suite re-run clean against it.
+- Exercised the real running API end-to-end with scripted HTTP requests:
+  confirmed a full 20-question adaptive session completes, tier movement
+  responds to right/wrong answers, and the resulting `assessment_sessions`
+  / `assessment_responses` / `user_vocabulary` rows in the actual SQLite
+  file matched the API's reported result exactly.
+- Drove the real UI in a headless browser at a 412×915 (Galaxy S24
+  Ultra-class) viewport through the entire intro → 20 questions → result
+  flow, screenshotting each stage - confirmed large touch-friendly
+  buttons, a clear progress indicator, and a correctly labeled
+  estimate/confidence/level result screen.
 - Confirmed the root Product Image Finder app still starts, and its full
   31-test suite still passes, unaffected by this addition.
+- Confirmed via `git status`/`git diff` that no file outside `vocab-app/`
+  was touched.

@@ -30,6 +30,60 @@ export interface HealthResponse {
   aiConfigured: boolean;
 }
 
+export type Tier = "beginner" | "intermediate" | "advanced";
+
+export interface AssessmentQuestionOption {
+  key: "A" | "B" | "C" | "D";
+  text: string;
+}
+
+export interface AssessmentQuestion {
+  wordId: string;
+  word: string;
+  difficultyLevel: Tier;
+  prompt: string;
+  options: AssessmentQuestionOption[];
+}
+
+export interface AssessmentProgress {
+  current: number;
+  total: number;
+}
+
+export interface AssessmentResult {
+  sessionId: string;
+  totalQuestions: number;
+  knownWordCount: number;
+  learningWordCount: number;
+  estimatedVocabularySize: number;
+  estimatedLevel: string;
+  confidence: "low" | "medium" | "high";
+  isBaseline: boolean;
+}
+
+export interface StartAssessmentResponse {
+  sessionId: string;
+  question: AssessmentQuestion;
+  progress: AssessmentProgress;
+}
+
+export interface SubmitAnswerResponse {
+  nextQuestion: AssessmentQuestion | null;
+  progress: AssessmentProgress | null;
+  result: AssessmentResult | null;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
+
+  startAssessment: () => request<StartAssessmentResponse>("/api/assessment", { method: "POST" }),
+
+  submitAssessmentAnswer: (
+    sessionId: string,
+    body: { wordId: string; selectedOptionText: string | null; responseTimeMs?: number }
+  ) =>
+    request<SubmitAnswerResponse>(`/api/assessment/${sessionId}/answer`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

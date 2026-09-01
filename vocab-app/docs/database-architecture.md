@@ -1,4 +1,4 @@
-# Database Architecture (Phase 2)
+# Database Architecture (Phase 2-3)
 
 ## Entity overview
 
@@ -12,6 +12,8 @@ Shared dictionary (identical for every user)
 Personal data (one copy per user)
   users
     ├─ user_settings                     (1:1)
+    ├─ assessment_sessions               (one row per assessment run, never overwritten)
+    │     └─ assessment_responses         (one row per question answered)
     ├─ user_vocabulary                   (one row per user+word)
     │     └─ vocabulary_review_history    (every test attempt, ever)
     ├─ vocabulary_collections
@@ -52,6 +54,26 @@ itself only holds the *current* rollup (`mastery_score`, `review_count`,
 `correct_count`, etc.); the history table is what a later mastery/SRS
 engine will read to understand a trend, not just a snapshot. Nothing here
 computes mastery yet - that's Phase 6.
+
+## Initial assessment: known-before-app vs. learned-through-app
+
+The assessment (Phase 3) is the first real writer of `user_vocabulary`.
+Each run is one `assessment_sessions` row, holding its own computed
+`estimated_vocabulary_size`/`estimated_level`/`confidence` and never
+overwritten by a later run - re-assessment is always a *new* session row,
+so growth over time stays queryable (`is_baseline = true` marks only the
+user's first-ever completed session, the reference point later statistics
+compare against). Every question answered is its own `assessment_responses`
+row (word, difficulty, selected answer, correctness, "I don't know" flag,
+response time) - a full history, not just a final tally.
+
+On completion, each answered word is upserted (never blind-inserted) into
+`user_vocabulary`: a confidently-recognized word becomes `status = familiar`
+with `known_before_app = true`; anything else (a wrong guess or "I don't
+know") becomes `status = new` with `known_before_app = false`. That flag is
+the whole point - it is what lets a later dashboard compute "words learned
+since starting the app" as words where `known_before_app = false`, instead
+of inflating progress by counting words the user already knew.
 
 ## Multi-user readiness (still single-local-user today)
 

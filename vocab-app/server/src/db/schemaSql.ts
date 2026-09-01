@@ -83,6 +83,7 @@ export const statements: string[] = [
     mastery_score INTEGER NOT NULL DEFAULT 0,
     confidence_score INTEGER NOT NULL DEFAULT 0,
     archived INTEGER NOT NULL DEFAULT 0,
+    known_before_app INTEGER NOT NULL DEFAULT 0,
     first_encountered_at TEXT NOT NULL DEFAULT (current_timestamp),
     learned_at TEXT,
     last_reviewed_at TEXT,
@@ -99,6 +100,37 @@ export const statements: string[] = [
   `CREATE INDEX IF NOT EXISTS user_vocabulary_status_idx ON user_vocabulary (status)`,
   `CREATE INDEX IF NOT EXISTS user_vocabulary_next_review_idx ON user_vocabulary (next_review_at)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS user_vocabulary_user_word_unique ON user_vocabulary (user_id, word_id)`,
+
+  `CREATE TABLE IF NOT EXISTS assessment_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    is_baseline INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL DEFAULT (current_timestamp),
+    completed_at TEXT,
+    estimated_vocabulary_size INTEGER,
+    estimated_level TEXT,
+    confidence TEXT,
+    known_word_count INTEGER,
+    learning_word_count INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS assessment_sessions_user_idx ON assessment_sessions (user_id)`,
+
+  `CREATE TABLE IF NOT EXISTS assessment_responses (
+    id TEXT PRIMARY KEY,
+    assessment_session_id TEXT NOT NULL REFERENCES assessment_sessions (id) ON DELETE CASCADE,
+    word_id TEXT NOT NULL REFERENCES words (id) ON DELETE RESTRICT,
+    difficulty_level TEXT NOT NULL,
+    question_type TEXT NOT NULL DEFAULT 'multiple_choice',
+    selected_option TEXT,
+    correct_option TEXT NOT NULL,
+    is_correct INTEGER NOT NULL,
+    dont_know INTEGER NOT NULL DEFAULT 0,
+    response_time_ms INTEGER,
+    answered_at TEXT NOT NULL DEFAULT (current_timestamp)
+  )`,
+  `CREATE INDEX IF NOT EXISTS assessment_responses_session_idx ON assessment_responses (assessment_session_id)`,
+  `CREATE INDEX IF NOT EXISTS assessment_responses_word_idx ON assessment_responses (word_id)`,
 
   `CREATE TABLE IF NOT EXISTS vocabulary_review_history (
     id TEXT PRIMARY KEY,

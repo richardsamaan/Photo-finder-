@@ -1,15 +1,20 @@
 import { and, eq } from "drizzle-orm";
-import { db } from "./client.js";
+import { db as realDb } from "./client.js";
 import { languages, words, wordSenses, wordRelations, userSettings } from "./schema.js";
 import { newId } from "../lib/ids.js";
 import { ensureLocalUser, LOCAL_USER_ID } from "../modules/users/localUser.js";
 import { ENGLISH_SEED_WORDS, ENGLISH_SEED_RELATIONS } from "./seed-data.js";
 
+// Accepts any drizzle db instance (the real one, or an in-memory test db
+// from testUtils.ts) so the exact same seed content and logic can be
+// reused by tests instead of duplicating fixture data.
+type Db = typeof realDb;
+
 function normalize(word: string): string {
   return word.trim().toLowerCase();
 }
 
-function seedEnglishLanguage(): string {
+export function seedEnglishLanguage(db: Db): string {
   const existing = db.select().from(languages).where(eq(languages.code, "en")).get();
   if (existing) return existing.id;
 
@@ -18,7 +23,7 @@ function seedEnglishLanguage(): string {
   return id;
 }
 
-function seedWords(languageId: string): Map<string, string> {
+export function seedWords(db: Db, languageId: string): Map<string, string> {
   const idByNormalized = new Map<string, string>();
 
   for (const entry of ENGLISH_SEED_WORDS) {
@@ -67,7 +72,7 @@ function seedWords(languageId: string): Map<string, string> {
   return idByNormalized;
 }
 
-function seedRelations(idByNormalized: Map<string, string>): void {
+export function seedRelations(db: Db, idByNormalized: Map<string, string>): void {
   for (const rel of ENGLISH_SEED_RELATIONS) {
     const wordId = idByNormalized.get(normalize(rel.word));
     const relatedWordId = idByNormalized.get(normalize(rel.relatedWord));
@@ -90,12 +95,12 @@ function seedRelations(idByNormalized: Map<string, string>): void {
   }
 }
 
-export function seed(): void {
+export function seed(db: Db): void {
   ensureLocalUser();
 
-  const languageId = seedEnglishLanguage();
-  const idByNormalized = seedWords(languageId);
-  seedRelations(idByNormalized);
+  const languageId = seedEnglishLanguage(db);
+  const idByNormalized = seedWords(db, languageId);
+  seedRelations(db, idByNormalized);
 
   // Point the local user's default learning language at English now that
   // it definitely exists.
@@ -105,6 +110,6 @@ export function seed(): void {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  seed();
+  seed(realDb);
   process.exit(0);
 }

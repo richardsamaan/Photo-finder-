@@ -1,6 +1,9 @@
-// Phase 2 seed dataset: a small, representative English vocabulary set
+// Phase 2/3 seed dataset: a small, representative English vocabulary set
 // used to verify the schema (difficulty spread, multiple parts of speech,
-// words with multiple senses, and a couple of synonym/antonym relations).
+// words with multiple senses, and a couple of synonym/antonym relations),
+// and to drive the Phase 3 initial vocabulary assessment with enough
+// per-tier variety for a meaningful adaptive test and plausible
+// multiple-choice distractors.
 //
 // License note: every definition and example sentence here was written
 // originally for this project - none are copied from a proprietary
@@ -372,6 +375,248 @@ export const ENGLISH_SEED_WORDS: SeedWord[] = [
         definition: "Fluent and persuasive in speaking or writing.",
         partOfSpeech: "adjective",
         exampleSentence: "The speaker gave an eloquent speech that moved the entire audience.",
+      },
+    ],
+  },
+
+  // --- added for Phase 3: more per-tier variety for the assessment ---
+  {
+    word: "kind",
+    difficultyLevel: "beginner",
+    frequencyRank: 450,
+    senses: [
+      {
+        definition: "Considerate and generous towards others.",
+        partOfSpeech: "adjective",
+        exampleSentence: "She was always kind to strangers in need.",
+      },
+    ],
+  },
+  {
+    word: "quick",
+    difficultyLevel: "beginner",
+    frequencyRank: 380,
+    senses: [
+      {
+        definition: "Moving fast, or done in a short amount of time.",
+        partOfSpeech: "adjective",
+        exampleSentence: "He gave a quick answer to the question.",
+      },
+    ],
+  },
+  {
+    word: "strong",
+    difficultyLevel: "beginner",
+    frequencyRank: 320,
+    senses: [
+      {
+        definition: "Having great physical power or force.",
+        partOfSpeech: "adjective",
+        exampleSentence: "The strong wind knocked over the fence.",
+      },
+    ],
+  },
+  {
+    word: "quiet",
+    difficultyLevel: "beginner",
+    frequencyRank: 550,
+    senses: [
+      {
+        definition: "Making little or no noise.",
+        partOfSpeech: "adjective",
+        exampleSentence: "The library was quiet during exam week.",
+      },
+    ],
+  },
+  {
+    word: "simple",
+    difficultyLevel: "beginner",
+    frequencyRank: 420,
+    senses: [
+      {
+        definition: "Easy to understand or do; not complicated.",
+        partOfSpeech: "adjective",
+        exampleSentence: "The instructions were simple enough for a child to follow.",
+      },
+    ],
+  },
+  {
+    word: "friend",
+    difficultyLevel: "beginner",
+    frequencyRank: 220,
+    senses: [
+      {
+        definition: "A person one knows well and regards with affection.",
+        partOfSpeech: "noun",
+        exampleSentence: "She met her best friend in elementary school.",
+      },
+    ],
+  },
+  {
+    word: "generous",
+    difficultyLevel: "intermediate",
+    frequencyRank: 2200,
+    senses: [
+      {
+        definition: "Willing to give more of something than is strictly necessary.",
+        partOfSpeech: "adjective",
+        exampleSentence: "He was generous with his time, helping anyone who asked.",
+      },
+    ],
+  },
+  {
+    word: "reliable",
+    difficultyLevel: "intermediate",
+    frequencyRank: 1900,
+    senses: [
+      {
+        definition: "Consistently good in quality and able to be trusted.",
+        partOfSpeech: "adjective",
+        exampleSentence: "The old car was surprisingly reliable despite its age.",
+      },
+    ],
+  },
+  {
+    word: "efficient",
+    difficultyLevel: "intermediate",
+    frequencyRank: 2100,
+    senses: [
+      {
+        definition: "Achieving maximum productivity with minimum wasted effort.",
+        partOfSpeech: "adjective",
+        exampleSentence: "The new process is far more efficient than the old one.",
+      },
+    ],
+  },
+  {
+    word: "flexible",
+    difficultyLevel: "intermediate",
+    frequencyRank: 2400,
+    senses: [
+      {
+        definition: "Able to change or adapt easily to different conditions.",
+        partOfSpeech: "adjective",
+        exampleSentence: "Her flexible schedule let her work from anywhere.",
+      },
+    ],
+  },
+  {
+    word: "ambition",
+    difficultyLevel: "intermediate",
+    frequencyRank: 2800,
+    senses: [
+      {
+        definition: "A strong desire to achieve something.",
+        partOfSpeech: "noun",
+        exampleSentence: "His ambition to become a doctor drove him through years of study.",
+      },
+    ],
+  },
+  {
+    word: "persuade",
+    difficultyLevel: "intermediate",
+    frequencyRank: 3200,
+    senses: [
+      {
+        definition: "To cause someone to believe or do something through reasoning.",
+        partOfSpeech: "verb",
+        exampleSentence: "She persuaded her manager to approve the new budget.",
+      },
+    ],
+  },
+  {
+    word: "collaborate",
+    difficultyLevel: "intermediate",
+    frequencyRank: 3500,
+    senses: [
+      {
+        definition: "To work jointly with others on a shared task.",
+        partOfSpeech: "verb",
+        exampleSentence: "The two teams collaborated to finish the project early.",
+      },
+    ],
+  },
+  {
+    word: "tenacious",
+    difficultyLevel: "advanced",
+    frequencyRank: 8800,
+    senses: [
+      {
+        definition: "Holding firmly to a purpose or course of action; persistent.",
+        partOfSpeech: "adjective",
+        exampleSentence: "Her tenacious pursuit of the truth eventually solved the case.",
+      },
+    ],
+  },
+  {
+    word: "candid",
+    difficultyLevel: "advanced",
+    frequencyRank: 7800,
+    senses: [
+      {
+        definition: "Truthful and straightforward; frank.",
+        partOfSpeech: "adjective",
+        exampleSentence: "He gave a candid assessment of the company's problems.",
+      },
+    ],
+  },
+  {
+    word: "inevitable",
+    difficultyLevel: "advanced",
+    frequencyRank: 7200,
+    senses: [
+      {
+        definition: "Certain to happen; unavoidable.",
+        partOfSpeech: "adjective",
+        exampleSentence: "Given the circumstances, the delay was inevitable.",
+      },
+    ],
+  },
+  {
+    word: "discern",
+    difficultyLevel: "advanced",
+    frequencyRank: 9200,
+    senses: [
+      {
+        definition: "To perceive or recognize something clearly, especially something subtle.",
+        partOfSpeech: "verb",
+        exampleSentence: "It took her years to discern the difference between the two styles.",
+      },
+    ],
+  },
+  {
+    word: "lucid",
+    difficultyLevel: "advanced",
+    frequencyRank: 8900,
+    senses: [
+      {
+        definition: "Expressed clearly and easy to understand.",
+        partOfSpeech: "adjective",
+        exampleSentence: "His lucid explanation cleared up all our confusion.",
+      },
+    ],
+  },
+  {
+    word: "prudent",
+    difficultyLevel: "advanced",
+    frequencyRank: 7600,
+    senses: [
+      {
+        definition: "Acting with care and thought for the future; sensible.",
+        partOfSpeech: "adjective",
+        exampleSentence: "It was prudent of them to save part of their income each month.",
+      },
+    ],
+  },
+  {
+    word: "versatile",
+    difficultyLevel: "advanced",
+    frequencyRank: 7900,
+    senses: [
+      {
+        definition: "Able to adapt to many different functions or activities.",
+        partOfSpeech: "adjective",
+        exampleSentence: "A versatile employee can step into almost any role.",
       },
     ],
   },
