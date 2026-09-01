@@ -1,10 +1,15 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(serverRoot, "..");
+
+// Load the repo-root .env explicitly - "dotenv/config" defaults to
+// process.cwd(), which is server/ when run via `npm run dev -w server`,
+// so it would silently miss the root .env entirely.
+dotenv.config({ path: path.join(repoRoot, ".env") });
 
 function num(name: string, fallback: number): number {
   const v = process.env[name];
