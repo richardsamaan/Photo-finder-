@@ -3,7 +3,8 @@ import { z } from "zod";
 import { db } from "../db/client.js";
 import { LOCAL_USER_ID } from "../modules/users/localUser.js";
 import { getEnglishLanguageId } from "../modules/dictionary/language.js";
-import { addWord, getSummary, getWordDetail, listVocabulary, markDontKnow } from "../modules/vocabulary-bank/service.js";
+import { addWord, getSummary, getWordDetail, listVocabulary } from "../modules/vocabulary-bank/service.js";
+import { recordDontKnow } from "../modules/learning/reviewService.js";
 
 export const vocabularyRouter = Router();
 
@@ -63,7 +64,7 @@ vocabularyRouter.post("/dont-know", (req, res) => {
     return;
   }
   try {
-    const result = markDontKnow(db, LOCAL_USER_ID, parsed.data.wordId);
+    const result = recordDontKnow(db, LOCAL_USER_ID, parsed.data.wordId);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Could not update this word." });

@@ -94,7 +94,7 @@ test("review history keeps every review, not just the latest", () => {
       {
         id: newId("review"),
         userVocabularyId: uvId,
-        testType: "recognition",
+        testType: "multiple_choice",
         result: "correct",
         previousScore: 0,
         newScore: 20,
@@ -102,7 +102,7 @@ test("review history keeps every review, not just the latest", () => {
       {
         id: newId("review"),
         userVocabularyId: uvId,
-        testType: "recall",
+        testType: "english_to_meaning",
         result: "incorrect",
         previousScore: 20,
         newScore: 10,

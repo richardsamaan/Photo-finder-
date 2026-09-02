@@ -5,7 +5,7 @@ import { createTestDb } from "../../db/testUtils.js";
 import { seedEnglishLanguage, seedWords, seedRelations } from "../../db/seed.js";
 import { users, words, userVocabulary } from "../../db/schema.js";
 import { newId } from "../../lib/ids.js";
-import { addWord, getSummary, getWordDetail, listVocabulary, markDontKnow, upsertUserVocabulary } from "./service.js";
+import { addWord, getSummary, getWordDetail, listVocabulary, upsertUserVocabulary } from "./service.js";
 
 type TestDb = ReturnType<typeof createTestDb>["db"];
 
@@ -206,29 +206,8 @@ test("adding an existing word reuses the dictionary entry and does not duplicate
   assert.equal(rows.length, 1);
 });
 
-test('"I don\'t know this word" creates a new user_vocabulary record', () => {
-  const { db, userId, languageId } = setup();
-  const achieveId = wordIdFor(db, languageId, "achieve");
-
-  const result = markDontKnow(db, userId, achieveId);
-  const detail = getWordDetail(db, userId, result.userVocabularyId);
-  assert.equal(detail?.status, "new");
-  assert.equal(detail?.knownBeforeApp, false);
-});
-
-test('"I don\'t know this word" resets a word previously known before the app', () => {
-  const { db, userId, languageId } = setup();
-  const achieveId = wordIdFor(db, languageId, "achieve");
-  upsertUserVocabulary(db, userId, achieveId, { status: "familiar", knownBeforeApp: true, masteryScore: 60, confidenceScore: 70 });
-
-  const result = markDontKnow(db, userId, achieveId);
-  const detail = getWordDetail(db, userId, result.userVocabularyId);
-  assert.equal(detail?.status, "new");
-  assert.equal(detail?.knownBeforeApp, false);
-
-  const rows = db.select().from(userVocabulary).where(and(eq(userVocabulary.userId, userId), eq(userVocabulary.wordId, achieveId))).all();
-  assert.equal(rows.length, 1, "should update the existing row, not create a duplicate");
-});
+// "I don't know this word" tests moved to
+// modules/learning/reviewService.test.ts (recordDontKnow) in Phase 5.
 
 test("an empty vocabulary bank returns an empty list and a zeroed summary", () => {
   const { db, userId } = setup();

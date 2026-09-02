@@ -4,6 +4,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Assessment } from "./pages/Assessment";
 import { MyVocabulary } from "./pages/MyVocabulary";
 import { WordDetail } from "./pages/WordDetail";
+import { LearningQueue } from "./pages/LearningQueue";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/assessment" element={<Assessment />} />
           <Route path="/vocabulary" element={<MyVocabulary />} />
           <Route path="/vocabulary/:userVocabularyId" element={<WordDetail />} />
+          <Route path="/learning" element={<LearningQueue />} />
         </Routes>
       </main>
     </div>

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 
 // ============================================================
 // Shared dictionary data - language-agnostic, identical for every user.
@@ -162,8 +162,12 @@ export const userVocabulary = sqliteTable(
 );
 
 // Every single review attempt, ever - never overwritten, so the mastery
-// and spaced-repetition engines (later phases) have real history to learn
-// from instead of just the latest result.
+// and spaced-repetition engines (Phase 5) have real history to learn from
+// instead of just the latest result. This table was created in Phase 2 but
+// never written to until Phase 5, so widening test_type and adding the
+// SRS/outcome columns below carries zero migration risk for real data -
+// see docs/mastery-srs-engine.md and db/migrate.ts's idempotent upgrade
+// path for existing (empty) databases created before this phase.
 export const vocabularyReviewHistory = sqliteTable(
   "vocabulary_review_history",
   {
@@ -171,8 +175,8 @@ export const vocabularyReviewHistory = sqliteTable(
     userVocabularyId: text("user_vocabulary_id").notNull(),
     testType: text("test_type", {
       enum: [
-        "recognition",
-        "recall",
+        "english_to_meaning",
+        "meaning_to_english",
         "multiple_choice",
         "fill_blank",
         "sentence_completion",
@@ -180,12 +184,29 @@ export const vocabularyReviewHistory = sqliteTable(
         "spelling",
         "listening",
         "active_usage",
-        "meaning_to_english",
+        "ai_conversation",
       ],
     }).notNull(),
     result: text("result", { enum: ["correct", "incorrect", "partial"] }).notNull(),
+    // Finer-grained than `result` - what the spaced-repetition engine
+    // actually schedules from. "dont_know" is kept distinct from a wrong
+    // guess in an active test, per the product requirement that the two
+    // remain distinguishable in history.
+    outcome: text("outcome", { enum: ["again", "hard", "good", "easy", "dont_know"] })
+      .notNull()
+      .default("good"),
     previousScore: integer("previous_score").notNull(),
     newScore: integer("new_score").notNull(),
+    // SRS state snapshot - lets the engine derive "current interval/ease/
+    // repetitions" from the latest history row instead of needing extra
+    // columns on user_vocabulary for state that only the SRS engine uses.
+    previousIntervalDays: integer("previous_interval_days").notNull().default(0),
+    newIntervalDays: integer("new_interval_days").notNull().default(0),
+    easeFactor: real("ease_factor").notNull().default(2.5),
+    repetitions: integer("repetitions").notNull().default(0),
+    nextReviewAt: text("next_review_at"),
+    wasDue: integer("was_due", { mode: "boolean" }).notNull().default(false),
+    successful: integer("successful", { mode: "boolean" }).notNull().default(false),
     responseTimeMs: integer("response_time_ms"),
     reviewedAt: text("reviewed_at").notNull().default(sql`(current_timestamp)`),
   },

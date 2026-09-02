@@ -8,6 +8,7 @@ import { healthRouter } from "./routes/health.js";
 import { assessmentRouter } from "./routes/assessment.js";
 import { vocabularyRouter } from "./routes/vocabulary.js";
 import { collectionsRouter } from "./routes/collections.js";
+import { learningRouter } from "./routes/learning.js";
 import { ensureLocalUser } from "./modules/users/localUser.js";
 
 runMigrations();
@@ -21,6 +22,7 @@ app.use("/api/health", healthRouter);
 app.use("/api/assessment", assessmentRouter);
 app.use("/api/vocabulary", vocabularyRouter);
 app.use("/api/collections", collectionsRouter);
+app.use("/api/learning", learningRouter);
 
 // Serve the built frontend in production (single-process deployment).
 const webDist = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "web", "dist");

@@ -228,4 +228,70 @@ export const api = {
 
   removeWordFromCollection: (collectionId: string, userVocabularyId: string) =>
     request<{ ok: boolean }>(`/api/collections/${collectionId}/words/${userVocabularyId}`, { method: "DELETE" }),
+
+  getLearningQueue: () => request<{ items: QueueItem[] }>("/api/learning/queue"),
+
+  getLearningStats: () => request<LearningStats>("/api/learning/stats"),
+
+  recordReview: (body: { userVocabularyId: string; testType: TestType; outcome: ReviewOutcome; responseTimeMs?: number }) =>
+    request<RecordReviewResult>("/api/learning/review", { method: "POST", body: JSON.stringify(body) }),
 };
+
+export type TestType =
+  | "english_to_meaning"
+  | "meaning_to_english"
+  | "multiple_choice"
+  | "fill_blank"
+  | "sentence_completion"
+  | "context_recognition"
+  | "spelling"
+  | "listening"
+  | "active_usage"
+  | "ai_conversation";
+
+export type ReviewOutcome = "again" | "hard" | "good" | "easy" | "dont_know";
+
+export interface QueueItem {
+  userVocabularyId: string;
+  wordId: string;
+  word: string;
+  status: VocabularyStatus;
+  needsReview: boolean;
+  baseMasteryScore: number;
+  effectiveMasteryScore: number;
+  nextReviewAt: string | null;
+  overdueDays: number;
+  priority: number;
+  reason: "needs_review" | "overdue" | "due" | "new" | "mastered_decayed";
+}
+
+export interface LearningStats {
+  total: number;
+  new: number;
+  learning: number;
+  familiar: number;
+  mastered: number;
+  needsReview: number;
+  dueToday: number;
+  overdue: number;
+  activeLearning: number;
+  learnedThroughApp: number;
+  knownBeforeApp: number;
+  averageMastery: number;
+  retentionRate: number;
+}
+
+export interface RecordReviewResult {
+  userVocabularyId: string;
+  previousStatus: VocabularyStatus;
+  newStatus: VocabularyStatus;
+  previousMasteryScore: number;
+  newMasteryScore: number;
+  effectiveMasteryScore: number;
+  needsReview: boolean;
+  previousIntervalDays: number;
+  newIntervalDays: number;
+  nextReviewAt: string;
+  wasDue: boolean;
+  successful: boolean;
+}

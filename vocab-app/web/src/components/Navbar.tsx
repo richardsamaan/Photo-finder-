@@ -17,6 +17,9 @@ export function Navbar() {
           <NavLink to="/vocabulary" className={linkClass}>
             My Vocabulary
           </NavLink>
+          <NavLink to="/learning" className={linkClass}>
+            Learning Queue
+          </NavLink>
         </nav>
       </div>
     </header>

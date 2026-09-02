@@ -101,24 +101,11 @@ export function addWord(db: Db, userId: string, languageId: string, rawWord: str
   return { userVocabularyId, wordId: wordRow.id, wordCreated };
 }
 
-// ============================================================
-// "I don't know this word" - a single reusable entry point so every
-// future feature (AI conversation, imported text, browser capture) can
-// call the same function instead of re-implementing this logic.
-// ============================================================
-
-export function markDontKnow(db: Db, userId: string, wordId: string): { userVocabularyId: string } {
-  const wordRow = db.select().from(words).where(eq(words.id, wordId)).get();
-  if (!wordRow) throw new Error("Word not found.");
-
-  const { userVocabularyId } = upsertUserVocabulary(db, userId, wordId, {
-    status: "new",
-    knownBeforeApp: false,
-    masteryScore: 0,
-    confidenceScore: 0,
-  });
-  return { userVocabularyId };
-}
+// "I don't know this word" moved to modules/learning/reviewService.ts
+// (recordDontKnow) in Phase 5 - now that a real mastery/SRS engine
+// exists, it's a proper learning-engine event (preserves history,
+// nudges evidence down, schedules a near-term review) rather than the
+// hard reset-to-zero this module used to do directly.
 
 // ============================================================
 // Summary counts - aggregated in SQL, not pulled into JS, so this stays

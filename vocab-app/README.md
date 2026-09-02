@@ -15,19 +15,48 @@ etc. later means adding rows, not redesigning tables.
 
 ---
 
-## Status: Phase 4 - My Vocabulary / personal vocabulary bank
+## Status: Phase 5 - mastery engine + spaced repetition engine
 
 What exists right now:
 
 - Express + TypeScript API server with a health endpoint and SQLite wiring
   (via `better-sqlite3` + Drizzle ORM).
-- The full language-agnostic database schema (unchanged since Phase 2 -
-  Phase 4 needed no schema additions): `languages`, `words`, `word_senses`,
-  `word_relations`, `users`, `user_settings`, `user_vocabulary` (with a
-  `known_before_app` flag), `assessment_sessions`, `assessment_responses`,
-  `vocabulary_review_history`, `vocabulary_collections`, `collection_words`,
-  `learning_sessions`. See `docs/database-architecture.md` for the entity
-  relationships.
+- The full language-agnostic database schema: `languages`, `words`,
+  `word_senses`, `word_relations`, `users`, `user_settings`,
+  `user_vocabulary` (with a `known_before_app` flag), `assessment_sessions`,
+  `assessment_responses`, `vocabulary_review_history` (now carrying the
+  Phase 5 mastery/SRS columns: `outcome`, interval/ease/repetitions,
+  `next_review_at`, `was_due`, `successful`), `vocabulary_collections`,
+  `collection_words`, `learning_sessions`. See `docs/database-architecture.md`
+  for the entity relationships and `docs/mastery-srs-engine.md` for the
+  learning engine's design.
+- **Mastery engine** (`modules/mastery/`, pure): scores a word across six
+  evidence dimensions (recognition, recall, context, usage, spelling,
+  listening) from its real review history - an untested dimension is
+  `null`, never assumed to be 0 or proven. Overall mastery is a weighted
+  average of only the dimensions with evidence. Reaching `mastered` status
+  requires both a high score **and** at least 10 successful reviews with no
+  recent failure - never a single lucky answer. A separate decay model
+  computes *effective* (time-decayed) mastery at read time without ever
+  touching the persisted base score.
+- **Spaced repetition engine** (`modules/spaced-repetition/`, pure): a
+  pluggable `SrsEngine` interface, with a modified SM-2 as the first
+  implementation - `AGAIN`/`HARD`/`GOOD`/`EASY`/`DONT_KNOW` outcomes each
+  produce distinct interval/ease-factor behavior (documented, not a blind
+  SM-2 port).
+- **Learning module** (`modules/learning/`, DB-backed): `recordReview`
+  (the only way mastery/status/interval/next-review ever change - always
+  server-computed, never client-supplied) and a prioritized review queue
+  (`GET /api/learning/queue`) that goes well beyond a `next_review_at`
+  sort - needs-review words first, then overdue amount, decayed retention,
+  learning status, and mistake history. Mastered words naturally leave the
+  active queue (long intervals + slow decay) and **can return** if
+  genuinely forgotten, verified end-to-end against the real API.
+- "I don't know this word" (`POST /api/vocabulary/dont-know` and
+  `/api/learning/dont-know`) was reconsidered now that a real mastery
+  engine exists: it no longer hard-resets a word to zero - it records a
+  genuine negative review event, preserving history and nudging evidence
+  down while scheduling a near-term review.
 - **Initial vocabulary assessment**: an adaptive multiple-choice test
   (`/assessment`) that discovers what the user already knows vs. what's
   new, producing a clearly-labeled estimate, level, and confidence rating.
@@ -67,8 +96,13 @@ What exists right now:
   via `npm run db:seed`.
 - 58 tests (11 database + 21 assessment + 26 vocabulary bank/collections)
   - all passing.
+- 113 tests (89 from Phases 2-4 plus 24 new: mastery engine, SRS engine,
+  queue priority, review service, queue/stats service, and migration
+  behavior) - all passing.
 - React + TypeScript + Vite + Tailwind frontend, mobile-first, with
-  Dashboard, Assessment, My Vocabulary, and Word Detail screens.
+  Dashboard, Assessment, My Vocabulary, Word Detail, and a minimal
+  **Learning Queue** screen (`/learning`) built only to verify the engine
+  end-to-end, not the polished Daily Review experience.
 - Same conventions as the root Product Image Finder app (npm workspaces,
   hand-written idempotent SQL migrations, typed fetch client, `.env`-based
   config) so the two apps are easy to reason about side by side.
@@ -77,8 +111,8 @@ What exists right now:
   powers optional Conversation/Content-Generation features in later phases.
 
 Not built yet (later phases, per the approved architecture): authentication,
-mastery engine, spaced repetition, other testing modes, dashboard stats, AI
-conversation, AI content generation, export, reminders.
+the polished Daily Review experience, other testing modes, a full analytics
+dashboard, AI conversation, AI content generation, export, reminders.
 
 ---
 
@@ -155,35 +189,38 @@ NODE_ENV=production npm run start
 
 ---
 
-## Testing performed (Phase 4)
+## Testing performed (Phase 5)
 
-- `npm run test -w server` - 58/58 tests passing: 11 Phase 2 database + 21
-  Phase 3 assessment + 26 new (vocabulary bank: user-scoping, search
-  including case-insensitivity, every filter, sorting, word detail
-  completeness including multi-sense words, Add Word for both new and
-  existing words, "I don't know" create-and-reset behavior, empty states,
-  aggregated summary counts; collections: create, duplicate-name
-  rejection, add/remove/multi-membership, deleting a collection leaves
-  the word and dictionary entry untouched, ownership enforcement).
+- `npm run test -w server` - 113/113 tests passing: 89 from Phases 2-4
+  plus 24 new - mastery engine (dimension scoring, evidence-strength
+  differences, status thresholds, the mastery evidence gate, decay),
+  SRS engine (all four outcomes' interval/ease behavior, due/overdue
+  detection), queue priority (pure ranking function), review service
+  (history creation, mastery/status/interval/needs-review updates, the
+  full New→Learning→Familiar→Mastered flow, a forgotten mastered word
+  returning, the reconsidered "I don't know" behavior), queue/stats
+  service, and migration behavior (idempotent column upgrades against a
+  simulated pre-Phase-5 table with existing rows).
 - `npm run build` (server + web) - both compile cleanly with no
   TypeScript errors.
 - Fresh `npm run db:push` + `npm run db:seed` verified from scratch, then
   the full test suite re-run clean against it.
-- Exercised the real running API end-to-end with scripted HTTP requests
-  covering add word, word detail, create/list collections, add/remove
-  collection membership, then ran a real assessment through the API and
-  confirmed search/filter/sort against the resulting real data (e.g. a
-  definition-text search correctly matched a word whose definition
-  contained the search term, even though the word itself didn't).
+- Exercised the real running API end-to-end: confirmed the assessment
+  still completes correctly; added a word and drove it through 10 real
+  `POST /api/learning/review` calls to `mastered` status (crossing
+  New→Learning→Familiar→Mastered exactly as designed); confirmed My
+  Vocabulary still lists the mastered word with full history intact;
+  directly aged its `last_reviewed_at` by 400 days and confirmed it
+  reappeared in `/api/learning/queue` with `reason: "mastered_decayed"`
+  even though its formal next-review date was still a year out; confirmed
+  a request with injected `masteryScore`/`status`/`newIntervalDays`
+  fields was silently ignored and the server's own independently-computed
+  values were used instead.
 - Drove the real UI in a headless browser at a 412×915 (Galaxy S24
-  Ultra-class) viewport: My Vocabulary (stat tiles, filter chips, search,
-  collections row, sort), the collections manager bottom sheet (create),
-  Add Word (with the honest "Definition not yet available" placeholder,
-  no invented content), and the word detail page (meanings, dates,
-  collection checkboxes, actions) - all screenshotted and visually
-  confirmed correct.
-- Confirmed the assessment (Phase 3) still completes correctly end-to-end
-  after the `upsertUserVocabulary` refactor that both features now share.
+  Ultra-class) viewport: the new Learning Queue screen (stats, due/overdue/
+  needs-review/new/learning/mastered counts, per-word Again/Hard/Good/Easy
+  buttons actually submitting reviews and updating the list) - screenshotted
+  and visually confirmed correct.
 - Confirmed the root Product Image Finder app still starts, and its full
   31-test suite still passes, unaffected by this addition.
 - Confirmed via `git status`/`git diff` that no file outside `vocab-app/`
