@@ -82,6 +82,7 @@ export function recordReview(db: Db, userId: string, input: RecordReviewInput): 
     .values({
       id: newId("review"),
       userVocabularyId: uv.id,
+      learningSessionId: input.learningSessionId ?? null,
       testType: input.testType,
       result: outcomeToResult(input.outcome),
       outcome: input.outcome,

@@ -15,7 +15,7 @@ etc. later means adding rows, not redesigning tables.
 
 ---
 
-## Status: Phase 5 - mastery engine + spaced repetition engine
+## Status: Phase 6 - daily learning & review experience
 
 What exists right now:
 
@@ -94,15 +94,68 @@ What exists right now:
   across all three difficulty tiers, multiple parts of speech, a
   multi-sense word (`bank`), and a few synonym/antonym relations - loaded
   via `npm run db:seed`.
-- 58 tests (11 database + 21 assessment + 26 vocabulary bank/collections)
-  - all passing.
-- 113 tests (89 from Phases 2-4 plus 24 new: mastery engine, SRS engine,
-  queue priority, review service, queue/stats service, and migration
-  behavior) - all passing.
+- **Session engine** (`modules/learning/`, alongside the Phase 5 review/
+  queue services rather than a new top-level module - same per-feature
+  convention used since Phase 2): a full Daily Learning & Review
+  experience built entirely on top of the existing Phase 5 mastery/SRS/
+  queue services, never a second prioritization algorithm.
+  - Three session types: **Daily Review** (due words, via the existing
+    queue service), **Learn New Words** (status=new words), and
+    **focused word** (a single word - powers "Practice this word" from
+    Word Detail, adding an untracked word to the bank first if needed).
+  - Five test types, architected so the remaining five Phase-5 types
+    (sentence_completion, context_recognition, listening, active_usage,
+    ai_conversation) plug in later without a redesign: multiple choice,
+    define-it (english→meaning), name-the-word (meaning→english),
+    fill-in-the-blank (from a real example sentence, tolerant of
+    inflected forms), and spelling. A deterministic (not random)
+    rotation picks test types based on real performance, so sessions stay
+    reproducible and struggling words get more recognition-first practice.
+  - **Answer-leak prevention is structural, not just UI-level**: the
+    question JSON itself never contains the correct answer before
+    submission - multiple-choice options carry no correctness field, and
+    for the three test types where the word itself *is* the answer
+    (name-the-word, spelling, fill-in-the-blank), the word is omitted
+    from the payload entirely rather than merely hidden by the client.
+  - Grading is always server-side and objective; a wrong answer is
+    auto-recorded as `AGAIN` with no further input, while a correct
+    answer waits for a separate Hard/Good/Easy choice before anything is
+    recorded - the user can never claim an outcome without a genuinely
+    correct answer, and the two-step flow can't produce a duplicate
+    review history row.
+  - Session state (`learning_sessions.items_json`) stores only
+    `{userVocabularyId, wordId, testType}` per item - question content is
+    always rebuilt fresh from live dictionary data, so a page reload
+    (resume) is naturally idempotent and nothing can go stale. Multiple-
+    choice's option shuffle is seeded on the session id specifically so a
+    resumed question is byte-identical, while a brand-new session on the
+    same word still reshuffles (no position-memorization).
+  - Session summaries distinguish "known before app" from "learned
+    through app" vocabulary growth - reviewing a word you already knew
+    is never counted as new vocabulary.
+  - **Review difficult words**: a small new session built only from the
+    words missed in a prior session, never a repeat of the whole thing.
+  - Exiting a session early preserves every already-recorded review and
+    never fakes completion of the remaining, unanswered items.
+  - Configurable daily limits, enforced server-side:
+    `DEFAULT_NEW_WORD_LIMIT` (5), `DEFAULT_DAILY_REVIEW_LIMIT` (20),
+    `MAX_SESSION_SIZE` (30).
+  - Pronunciation via the browser's free Web Speech API only (no paid
+    TTS) - feature-detected, the speak button simply doesn't render if
+    unsupported.
+- 163 tests (113 from Phases 2-5, plus 2 new migration tests for the
+  Phase 6 schema additions, plus 48 new across grading, test-type
+  rotation, question building, and the full session engine - lifecycle,
+  all five test types, answer-leak prevention including a dedicated
+  regression test, resume idempotency for multiple_choice specifically,
+  review integration, session summaries, "Review difficult words," and
+  focused-word practice) - all passing.
 - React + TypeScript + Vite + Tailwind frontend, mobile-first, with
-  Dashboard, Assessment, My Vocabulary, Word Detail, and a minimal
-  **Learning Queue** screen (`/learning`) built only to verify the engine
-  end-to-end, not the polished Daily Review experience.
+  Dashboard, Assessment, My Vocabulary, Word Detail (now with a working
+  "Practice this word" button), the original minimal **Learning Queue**
+  screen (`/learning`, kept for direct engine verification), and the new
+  polished **Learn** screen (`/learn`) covering session selection,
+  question/feedback/completion, and "Review difficult words."
 - Same conventions as the root Product Image Finder app (npm workspaces,
   hand-written idempotent SQL migrations, typed fetch client, `.env`-based
   config) so the two apps are easy to reason about side by side.
@@ -111,8 +164,11 @@ What exists right now:
   powers optional Conversation/Content-Generation features in later phases.
 
 Not built yet (later phases, per the approved architecture): authentication,
-the polished Daily Review experience, other testing modes, a full analytics
-dashboard, AI conversation, AI content generation, export, reminders.
+the remaining five Phase-5 test types (sentence_completion,
+context_recognition, listening, active_usage, ai_conversation), a full
+analytics dashboard, AI conversation, AI content generation, export,
+reminders, notifications, gamification/achievements, social features, cloud
+sync.
 
 ---
 
@@ -132,9 +188,13 @@ vocab-app/
   source of truth) and mirrored in `server/src/db/schema.ts` (typed Drizzle
   queries). See `docs/database-architecture.md` for the full design.
 - Frontend: React + Vite + Tailwind SPA, mobile-first.
-- The mastery engine and spaced-repetition engine (Phases 6-7) will be pure,
-  dependency-free modules so the learning algorithm can evolve independently
-  of routes, UI, and storage.
+- The mastery engine and spaced-repetition engine (`modules/mastery/`,
+  `modules/spaced-repetition/`) are pure, dependency-free modules so the
+  learning algorithm can evolve independently of routes, UI, and storage.
+  The Phase 6 session engine (`modules/learning/sessionService.ts` and
+  friends) is a thin orchestrator on top of them - it never reimplements
+  prioritization or scoring, only session lifecycle, question building,
+  and grading.
 
 ---
 
@@ -189,38 +249,52 @@ NODE_ENV=production npm run start
 
 ---
 
-## Testing performed (Phase 5)
+## Testing performed (Phase 6)
 
-- `npm run test -w server` - 113/113 tests passing: 89 from Phases 2-4
-  plus 24 new - mastery engine (dimension scoring, evidence-strength
-  differences, status thresholds, the mastery evidence gate, decay),
-  SRS engine (all four outcomes' interval/ease behavior, due/overdue
-  detection), queue priority (pure ranking function), review service
-  (history creation, mastery/status/interval/needs-review updates, the
-  full New→Learning→Familiar→Mastered flow, a forgotten mastered word
-  returning, the reconsidered "I don't know" behavior), queue/stats
-  service, and migration behavior (idempotent column upgrades against a
-  simulated pre-Phase-5 table with existing rows).
+- `npm run test` - 163/163 tests passing (113 from Phases 2-5, 2 new
+  migration tests, 48 new session-engine tests - see the count breakdown
+  above).
 - `npm run build` (server + web) - both compile cleanly with no
   TypeScript errors.
-- Fresh `npm run db:push` + `npm run db:seed` verified from scratch, then
-  the full test suite re-run clean against it.
-- Exercised the real running API end-to-end: confirmed the assessment
-  still completes correctly; added a word and drove it through 10 real
-  `POST /api/learning/review` calls to `mastered` status (crossing
-  New→Learning→Familiar→Mastered exactly as designed); confirmed My
-  Vocabulary still lists the mastered word with full history intact;
-  directly aged its `last_reviewed_at` by 400 days and confirmed it
-  reappeared in `/api/learning/queue` with `reason: "mastered_decayed"`
-  even though its formal next-review date was still a year out; confirmed
-  a request with injected `masteryScore`/`status`/`newIntervalDays`
-  fields was silently ignored and the server's own independently-computed
-  values were used instead.
+- Fresh `rm -rf server/data && npm run db:push && npm run db:seed`
+  verified from scratch, then the full test suite re-run clean against it.
+- Exercised the real running API end-to-end against the fresh database:
+  added a word, started a `focused_word` session, confirmed the served
+  question carried no answer-leak, submitted a correct answer, confirmed
+  the server graded it, chose a difficulty outcome, confirmed the
+  mastery/SRS update and a new `vocabulary_review_history` row tagged
+  with the session id, confirmed the session auto-completed and
+  `completeSession` returned a correct summary, confirmed My Vocabulary's
+  API listing reflected the updated word, and confirmed a second
+  `focused_word` session on the same word (simulating "Practice this
+  word" again) started cleanly.
+- Found and fixed two real bugs during this verification (both now
+  covered by dedicated regression tests):
+  - **Answer-leak bug**: `buildQuestion` was including the literal word
+    text in the payload for `meaning_to_english`, `spelling`, and
+    `fill_blank` - the three test types where the word itself *is* the
+    answer. Fixed by omitting `word` from the payload entirely for those
+    types (it's still included, safely, for `multiple_choice` and
+    `english_to_meaning`, where the word is given and the definition is
+    what's tested).
+  - **Non-idempotent resume for multiple_choice**: `getCurrentQuestion`
+    is documented as safe to call repeatedly with no side effects, but
+    multiple-choice's distractor/option shuffle used `Math.random()`, so
+    a page reload could show a different option order or distractor set.
+    Fixed with a deterministic shuffle seeded on the session id (so a
+    resumed question is byte-identical) combined with the word id (so a
+    *new* session on the same word still reshuffles).
 - Drove the real UI in a headless browser at a 412×915 (Galaxy S24
-  Ultra-class) viewport: the new Learning Queue screen (stats, due/overdue/
-  needs-review/new/learning/mastered counts, per-word Again/Hard/Good/Easy
-  buttons actually submitting reviews and updating the list) - screenshotted
-  and visually confirmed correct.
+  Ultra-class) viewport end-to-end: session selection, an active
+  multiple-choice question, the wrong-answer feedback (auto-continue)
+  path, the correct-answer feedback + Hard/Good/Easy path, the
+  completion screen (including "Review difficult words" reproducing only
+  the one missed word), My Vocabulary, Word Detail, and "Practice this
+  word" starting a real focused session - all screenshotted and visually
+  confirmed correct, with zero horizontal scrolling on every Phase 6
+  screen. (One pre-existing, unrelated 4px overflow was found on the
+  Phase 4 My Vocabulary status-filter row, not touched by this phase -
+  left as-is per scope.)
 - Confirmed the root Product Image Finder app still starts, and its full
   31-test suite still passes, unaffected by this addition.
 - Confirmed via `git status`/`git diff` that no file outside `vocab-app/`

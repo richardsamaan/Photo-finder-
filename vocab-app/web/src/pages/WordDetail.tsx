@@ -201,6 +201,10 @@ export function WordDetail() {
         )}
       </div>
 
+      <button className="btn-primary w-full" onClick={() => navigate(`/learn?practice=${detail.wordId}`)}>
+        Practice this word
+      </button>
+
       <div className="grid grid-cols-2 gap-3">
         <button className="btn-secondary" disabled={busy} onClick={handleDontKnow}>
           I don't know this

@@ -173,6 +173,11 @@ export const vocabularyReviewHistory = sqliteTable(
   {
     id: text("id").primaryKey(),
     userVocabularyId: text("user_vocabulary_id").notNull(),
+    // Nullable: reviews recorded outside a session (e.g. the Phase 5
+    // Learning Queue screen) have no session to attach to. When present,
+    // this is what lets a session summary be reconstructed straight from
+    // history rows instead of tracking a second copy of per-item results.
+    learningSessionId: text("learning_session_id"),
     testType: text("test_type", {
       enum: [
         "english_to_meaning",
@@ -313,11 +318,32 @@ export const collectionWords = sqliteTable(
 // table just gives it somewhere to record start/finish and outcome counts.
 // ============================================================
 
+// Created in Phase 2, never written to until Phase 6 - so the columns
+// added here for the session lifecycle carry zero migration risk for
+// real data, same situation vocabulary_review_history was in for Phase 5.
 export const learningSessions = sqliteTable(
   "learning_sessions",
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull(),
+    type: text("type", { enum: ["daily_review", "new_words", "focused_word"] })
+      .notNull()
+      .default("daily_review"),
+    status: text("status", { enum: ["in_progress", "completed", "exited"] })
+      .notNull()
+      .default("in_progress"),
+    // The session's ordered plan: [{userVocabularyId, wordId, testType}, ...].
+    // Deliberately minimal - question content (definitions, distractors,
+    // the exact fill-blank token) is always rebuilt fresh from live
+    // dictionary data at question-serve/grading time, never cached here,
+    // so there's nothing stale to keep in sync.
+    itemsJson: text("items_json").notNull().default("[]"),
+    currentIndex: integer("current_index").notNull().default(0),
+    // Set while an objectively-correct answer is awaiting the user's
+    // Hard/Good/Easy choice; null otherwise. Lets /outcome trust that the
+    // current item really was graded correct without re-grading or
+    // letting the client claim it was.
+    pendingCorrect: integer("pending_correct", { mode: "boolean" }),
     startedAt: text("started_at").notNull().default(sql`(current_timestamp)`),
     completedAt: text("completed_at"),
     newWordsCount: integer("new_words_count").notNull().default(0),

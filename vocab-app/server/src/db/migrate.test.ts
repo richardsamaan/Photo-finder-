@@ -77,3 +77,61 @@ test("upgrading a pre-Phase-5 vocabulary_review_history table preserves existing
   assert.equal(row.was_due, 0);
   assert.equal(row.successful, 0);
 });
+
+test("upgrading a pre-Phase-6 learning_sessions table preserves existing rows and adds the session-lifecycle columns", () => {
+  const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
+  // Minimal legacy shape: only the Phase 2 columns.
+  db.exec(`CREATE TABLE learning_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (current_timestamp),
+    completed_at TEXT,
+    new_words_count INTEGER NOT NULL DEFAULT 0,
+    review_words_count INTEGER NOT NULL DEFAULT 0,
+    correct_count INTEGER NOT NULL DEFAULT 0,
+    incorrect_count INTEGER NOT NULL DEFAULT 0,
+    duration_seconds INTEGER
+  )`);
+  db.prepare(`INSERT INTO learning_sessions (id, user_id, new_words_count) VALUES (?, ?, ?)`).run(
+    "session_1",
+    "user_1",
+    5
+  );
+
+  ensureColumn(db, "learning_sessions", "type", "type TEXT NOT NULL DEFAULT 'daily_review'");
+  ensureColumn(db, "learning_sessions", "status", "status TEXT NOT NULL DEFAULT 'in_progress'");
+  ensureColumn(db, "learning_sessions", "items_json", "items_json TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "learning_sessions", "current_index", "current_index INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "learning_sessions", "pending_correct", "pending_correct INTEGER");
+
+  const row = db.prepare("SELECT * FROM learning_sessions WHERE id = ?").get("session_1") as Record<string, unknown>;
+  assert.equal(row.new_words_count, 5, "pre-existing data untouched");
+  assert.equal(row.type, "daily_review");
+  assert.equal(row.status, "in_progress");
+  assert.equal(row.items_json, "[]");
+  assert.equal(row.current_index, 0);
+  assert.equal(row.pending_correct, null);
+});
+
+test("upgrading a pre-Phase-6 vocabulary_review_history table adds a nullable learning_session_id without disturbing existing rows", () => {
+  const db = new Database(":memory:");
+  db.exec(`CREATE TABLE vocabulary_review_history (
+    id TEXT PRIMARY KEY,
+    user_vocabulary_id TEXT NOT NULL,
+    test_type TEXT NOT NULL,
+    result TEXT NOT NULL,
+    previous_score INTEGER NOT NULL,
+    new_score INTEGER NOT NULL
+  )`);
+  db.prepare(
+    `INSERT INTO vocabulary_review_history (id, user_vocabulary_id, test_type, result, previous_score, new_score)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run("hist_1", "uv_1", "multiple_choice", "correct", 0, 20);
+
+  ensureColumn(db, "vocabulary_review_history", "learning_session_id", "learning_session_id TEXT");
+
+  const row = db.prepare("SELECT * FROM vocabulary_review_history WHERE id = ?").get("hist_1") as Record<string, unknown>;
+  assert.equal(row.new_score, 20);
+  assert.equal(row.learning_session_id, null);
+});

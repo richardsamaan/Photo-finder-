@@ -74,6 +74,27 @@ export const statements: string[] = [
     updated_at TEXT NOT NULL DEFAULT (current_timestamp)
   )`,
 
+  // Created here (before user_vocabulary/vocabulary_review_history) since
+  // vocabulary_review_history.learning_session_id references it - only
+  // needs "users" to already exist.
+  `CREATE TABLE IF NOT EXISTS learning_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    type TEXT NOT NULL DEFAULT 'daily_review',
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    items_json TEXT NOT NULL DEFAULT '[]',
+    current_index INTEGER NOT NULL DEFAULT 0,
+    pending_correct INTEGER,
+    started_at TEXT NOT NULL DEFAULT (current_timestamp),
+    completed_at TEXT,
+    new_words_count INTEGER NOT NULL DEFAULT 0,
+    review_words_count INTEGER NOT NULL DEFAULT 0,
+    correct_count INTEGER NOT NULL DEFAULT 0,
+    incorrect_count INTEGER NOT NULL DEFAULT 0,
+    duration_seconds INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS learning_sessions_user_idx ON learning_sessions (user_id)`,
+
   `CREATE TABLE IF NOT EXISTS user_vocabulary (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -135,6 +156,7 @@ export const statements: string[] = [
   `CREATE TABLE IF NOT EXISTS vocabulary_review_history (
     id TEXT PRIMARY KEY,
     user_vocabulary_id TEXT NOT NULL REFERENCES user_vocabulary (id) ON DELETE CASCADE,
+    learning_session_id TEXT REFERENCES learning_sessions (id) ON DELETE SET NULL,
     test_type TEXT NOT NULL,
     result TEXT NOT NULL,
     outcome TEXT NOT NULL DEFAULT 'good',
@@ -152,6 +174,7 @@ export const statements: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS review_history_user_vocab_idx ON vocabulary_review_history (user_vocabulary_id)`,
   `CREATE INDEX IF NOT EXISTS review_history_reviewed_at_idx ON vocabulary_review_history (reviewed_at)`,
+  `CREATE INDEX IF NOT EXISTS review_history_session_idx ON vocabulary_review_history (learning_session_id)`,
 
   `CREATE TABLE IF NOT EXISTS vocabulary_collections (
     id TEXT PRIMARY KEY,
@@ -172,16 +195,4 @@ export const statements: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS collection_words_user_vocab_idx ON collection_words (user_vocabulary_id)`,
 
-  `CREATE TABLE IF NOT EXISTS learning_sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    started_at TEXT NOT NULL DEFAULT (current_timestamp),
-    completed_at TEXT,
-    new_words_count INTEGER NOT NULL DEFAULT 0,
-    review_words_count INTEGER NOT NULL DEFAULT 0,
-    correct_count INTEGER NOT NULL DEFAULT 0,
-    incorrect_count INTEGER NOT NULL DEFAULT 0,
-    duration_seconds INTEGER
-  )`,
-  `CREATE INDEX IF NOT EXISTS learning_sessions_user_idx ON learning_sessions (user_id)`,
 ];

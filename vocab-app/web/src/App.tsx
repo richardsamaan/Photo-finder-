@@ -5,6 +5,7 @@ import { Assessment } from "./pages/Assessment";
 import { MyVocabulary } from "./pages/MyVocabulary";
 import { WordDetail } from "./pages/WordDetail";
 import { LearningQueue } from "./pages/LearningQueue";
+import { LearningSession } from "./pages/LearningSession";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/vocabulary" element={<MyVocabulary />} />
           <Route path="/vocabulary/:userVocabularyId" element={<WordDetail />} />
           <Route path="/learning" element={<LearningQueue />} />
+          <Route path="/learn" element={<LearningSession />} />
         </Routes>
       </main>
     </div>

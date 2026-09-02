@@ -37,6 +37,17 @@ export function runMigrations() {
     ensureColumn(sqlite, "vocabulary_review_history", "next_review_at", "next_review_at TEXT");
     ensureColumn(sqlite, "vocabulary_review_history", "was_due", "was_due INTEGER NOT NULL DEFAULT 0");
     ensureColumn(sqlite, "vocabulary_review_history", "successful", "successful INTEGER NOT NULL DEFAULT 0");
+
+    // Phase 6: session lifecycle columns. Both tables were never written
+    // to before Phase 6 (learning_sessions since Phase 2, the new link
+    // column on vocabulary_review_history is brand new), so these
+    // backfills carry no real data-loss risk either.
+    ensureColumn(sqlite, "learning_sessions", "type", "type TEXT NOT NULL DEFAULT 'daily_review'");
+    ensureColumn(sqlite, "learning_sessions", "status", "status TEXT NOT NULL DEFAULT 'in_progress'");
+    ensureColumn(sqlite, "learning_sessions", "items_json", "items_json TEXT NOT NULL DEFAULT '[]'");
+    ensureColumn(sqlite, "learning_sessions", "current_index", "current_index INTEGER NOT NULL DEFAULT 0");
+    ensureColumn(sqlite, "learning_sessions", "pending_correct", "pending_correct INTEGER");
+    ensureColumn(sqlite, "vocabulary_review_history", "learning_session_id", "learning_session_id TEXT");
   });
   run();
   console.log("[vocab-app db] migrations applied");

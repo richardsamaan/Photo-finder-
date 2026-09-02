@@ -7,6 +7,10 @@ export interface RecordReviewInput {
   testType: TestType;
   outcome: ReviewOutcome;
   responseTimeMs?: number;
+  // Present when this review happens inside a Phase 6 learning session -
+  // lets a session summary be reconstructed straight from history rows.
+  // Absent for standalone reviews (e.g. the Phase 5 Learning Queue screen).
+  learningSessionId?: string;
 }
 
 export interface RecordReviewResult {
@@ -36,6 +40,8 @@ export interface QueueItem {
   overdueDays: number;
   priority: number;
   reason: "needs_review" | "overdue" | "due" | "new" | "mastered_decayed";
+  correctCount: number;
+  incorrectCount: number;
 }
 
 export interface LearningStats {

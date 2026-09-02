@@ -31,6 +31,7 @@ function buildQueueItems(
     lastReviewedAt: string | null;
     firstEncounteredAt: string;
     incorrectCount: number;
+    correctCount: number;
   }[],
   now: Date
 ): QueueItem[] {
@@ -77,6 +78,8 @@ function buildQueueItems(
           overdueDays: overdue,
           priority,
           reason,
+          correctCount: r.correctCount,
+          incorrectCount: r.incorrectCount,
         } satisfies QueueItem,
         isQueueDue,
       };
@@ -101,6 +104,7 @@ export function getLearningQueue(db: Db, userId: string, limit = 50): QueueItem[
       lastReviewedAt: userVocabulary.lastReviewedAt,
       firstEncounteredAt: userVocabulary.firstEncounteredAt,
       incorrectCount: userVocabulary.incorrectCount,
+      correctCount: userVocabulary.correctCount,
     })
     .from(userVocabulary)
     .innerJoin(words, eq(words.id, userVocabulary.wordId))
@@ -127,6 +131,14 @@ export function getLearningQueue(db: Db, userId: string, limit = 50): QueueItem[
 // flow, not a "review" flow).
 export function getDueReviews(db: Db, userId: string, limit = 50): QueueItem[] {
   return getLearningQueue(db, userId, CANDIDATE_LIMIT).filter((item) => item.reason !== "new").slice(0, limit);
+}
+
+// A narrower view of the queue: brand-new, never-studied words - the
+// "learn new words" flow's candidate pool. Reuses the same queue
+// candidates and priority computation rather than a second, independent
+// selection algorithm.
+export function getNewWords(db: Db, userId: string, limit = 50): QueueItem[] {
+  return getLearningQueue(db, userId, CANDIDATE_LIMIT).filter((item) => item.reason === "new").slice(0, limit);
 }
 
 function startOfDayIso(now: Date): string {

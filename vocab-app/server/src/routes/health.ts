@@ -7,7 +7,7 @@ healthRouter.get("/", (_req, res) => {
   res.json({
     ok: true,
     app: "vocab-app",
-    phase: 5,
+    phase: 6,
     aiProvider: env.AI_PROVIDER,
     aiConfigured: aiProviderConfigured(),
   });

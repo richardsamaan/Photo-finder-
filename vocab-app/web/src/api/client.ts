@@ -235,7 +235,128 @@ export const api = {
 
   recordReview: (body: { userVocabularyId: string; testType: TestType; outcome: ReviewOutcome; responseTimeMs?: number }) =>
     request<RecordReviewResult>("/api/learning/review", { method: "POST", body: JSON.stringify(body) }),
+
+  startLearningSession: (body: { type: SessionType; wordId?: string }) =>
+    request<StartSessionResponse>("/api/learning/sessions", { method: "POST", body: JSON.stringify(body) }),
+
+  getSessionInfo: (sessionId: string) => request<SessionInfo>(`/api/learning/sessions/${sessionId}`),
+
+  getSessionCurrentQuestion: (sessionId: string) =>
+    request<{ question: SessionQuestion }>(`/api/learning/sessions/${sessionId}/current`),
+
+  submitSessionAnswer: (sessionId: string, body: { submittedText: string | null; responseTimeMs?: number }) =>
+    request<SessionSubmitAnswerResponse>(`/api/learning/sessions/${sessionId}/answer`, { method: "POST", body: JSON.stringify(body) }),
+
+  submitSessionOutcome: (sessionId: string, body: { outcome: "hard" | "good" | "easy" }) =>
+    request<SessionSubmitOutcomeResponse>(`/api/learning/sessions/${sessionId}/outcome`, { method: "POST", body: JSON.stringify(body) }),
+
+  completeLearningSession: (sessionId: string) =>
+    request<SessionSummary>(`/api/learning/sessions/${sessionId}/complete`, { method: "POST" }),
+
+  exitLearningSession: (sessionId: string) =>
+    request<SessionSummary>(`/api/learning/sessions/${sessionId}/exit`, { method: "POST" }),
+
+  reviewDifficultWords: (sessionId: string) =>
+    request<StartSessionResponse>(`/api/learning/sessions/${sessionId}/review-difficult`, { method: "POST" }),
 };
+
+export type SessionTestType = "multiple_choice" | "english_to_meaning" | "meaning_to_english" | "fill_blank" | "spelling";
+export type SessionType = "daily_review" | "new_words" | "focused_word";
+
+export interface SessionQuestionOption {
+  key: "A" | "B" | "C" | "D";
+  text: string;
+}
+
+export interface SessionQuestion {
+  userVocabularyId: string;
+  wordId: string;
+  word: string;
+  testType: SessionTestType;
+  prompt: string;
+  options?: SessionQuestionOption[];
+  sentence?: string;
+  phonetic?: string | null;
+}
+
+export interface SessionProgress {
+  totalItems: number;
+  currentIndex: number;
+}
+
+export interface StartSessionResponse {
+  sessionId: string;
+  type: SessionType;
+  progress: SessionProgress;
+  question: SessionQuestion;
+}
+
+export interface SessionInfo {
+  sessionId: string;
+  type: SessionType;
+  status: "in_progress" | "completed" | "exited";
+  totalItems: number;
+  currentIndex: number;
+  correctCount: number;
+  incorrectCount: number;
+  startedAt: string;
+}
+
+export interface RecordedMasteryUpdate {
+  previousStatus: VocabularyStatus;
+  newStatus: VocabularyStatus;
+  previousMasteryScore: number;
+  newMasteryScore: number;
+  needsReview: boolean;
+  nextReviewAt: string;
+}
+
+export interface SessionSubmitAnswerResponse {
+  isCorrect: boolean;
+  correctAnswer: string;
+  explanation: string;
+  exampleSentence: string | null;
+  requiresOutcomeChoice: boolean;
+  masteryUpdate: RecordedMasteryUpdate | null;
+  sessionComplete: boolean;
+  nextQuestion: SessionQuestion | null;
+  progress: SessionProgress;
+}
+
+export interface SessionSubmitOutcomeResponse {
+  masteryUpdate: RecordedMasteryUpdate;
+  sessionComplete: boolean;
+  nextQuestion: SessionQuestion | null;
+  progress: SessionProgress;
+}
+
+export interface SessionItemResult {
+  userVocabularyId: string;
+  word: string;
+  testType: SessionTestType;
+  correct: boolean;
+  previousScore: number;
+  newScore: number;
+  nextReviewAt: string | null;
+}
+
+export interface SessionSummary {
+  sessionId: string;
+  type: SessionType;
+  status: "completed" | "exited";
+  totalItems: number;
+  completedItems: number;
+  correctCount: number;
+  incorrectCount: number;
+  successRate: number;
+  wordsImproved: number;
+  wordsMastered: number;
+  wordsNeedingReview: number;
+  knownBeforeAppTouched: number;
+  learnedThroughAppTouched: number;
+  durationSeconds: number;
+  itemResults: SessionItemResult[];
+}
 
 export type TestType =
   | "english_to_meaning"

@@ -28,6 +28,14 @@ export function Dashboard() {
       </div>
 
       <div className="card p-6 space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">Learn</h2>
+        <p className="text-sm text-slate-600">Review words that are due or learn new ones with a short daily session.</p>
+        <Link to="/learn" className="btn-primary inline-flex w-full sm:w-auto">
+          Start Learning
+        </Link>
+      </div>
+
+      <div className="card p-6 space-y-3">
         <h2 className="text-lg font-semibold text-slate-900">My Vocabulary</h2>
         <p className="text-sm text-slate-600">Browse, search, and organize every word in your personal vocabulary bank.</p>
         <Link to="/vocabulary" className="btn-secondary inline-flex w-full sm:w-auto">

@@ -4,6 +4,16 @@ import { db } from "../db/client.js";
 import { LOCAL_USER_ID } from "../modules/users/localUser.js";
 import { recordReview, recordDontKnow } from "../modules/learning/reviewService.js";
 import { getLearningQueue, getDueReviews, getLearningStats } from "../modules/learning/queueService.js";
+import {
+  startSession,
+  getSessionInfo,
+  getCurrentQuestion,
+  submitAnswer,
+  submitOutcome,
+  completeSession,
+  exitSession,
+  startDifficultWordsSession,
+} from "../modules/learning/sessionService.js";
 
 export const learningRouter = Router();
 
@@ -88,5 +98,115 @@ learningRouter.post("/dont-know", (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Could not update this word." });
+  }
+});
+
+// ============================================================
+// Learning sessions (Phase 6). Ownership (LOCAL_USER_ID) is enforced by
+// sessionService itself - every function loads the session scoped to the
+// requesting user and throws if it doesn't belong to them.
+// ============================================================
+
+const startSessionSchema = z.object({
+  type: z.enum(["daily_review", "new_words", "focused_word"]),
+  wordId: z.string().min(1).optional(),
+});
+
+learningRouter.post("/sessions", (req, res) => {
+  const parsed = startSessionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request.", details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = startSession(db, LOCAL_USER_ID, parsed.data);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not start this session." });
+  }
+});
+
+learningRouter.get("/sessions/:sessionId", (req, res) => {
+  try {
+    res.json(getSessionInfo(db, LOCAL_USER_ID, req.params.sessionId));
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : "Session not found." });
+  }
+});
+
+learningRouter.get("/sessions/:sessionId/current", (req, res) => {
+  try {
+    const question = getCurrentQuestion(db, LOCAL_USER_ID, req.params.sessionId);
+    if (!question) {
+      res.status(404).json({ error: "No current question - the session may already be complete." });
+      return;
+    }
+    res.json({ question });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : "Session not found." });
+  }
+});
+
+// The client may only ever submit what it typed/selected and an optional
+// response time - never masteryScore/status/interval/nextReviewAt/
+// easeFactor/needsReview. The Zod schema has no such fields, so there is
+// structurally nothing for a client to inject here.
+const submitAnswerSchema = z.object({
+  submittedText: z.string().nullable(),
+  responseTimeMs: z.number().int().nonnegative().optional(),
+});
+
+learningRouter.post("/sessions/:sessionId/answer", (req, res) => {
+  const parsed = submitAnswerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid answer payload.", details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = submitAnswer(db, LOCAL_USER_ID, req.params.sessionId, parsed.data);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not submit this answer." });
+  }
+});
+
+const submitOutcomeSchema = z.object({ outcome: z.enum(["hard", "good", "easy"]) });
+
+learningRouter.post("/sessions/:sessionId/outcome", (req, res) => {
+  const parsed = submitOutcomeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid request.", details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const result = submitOutcome(db, LOCAL_USER_ID, req.params.sessionId, parsed.data);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not record that outcome." });
+  }
+});
+
+learningRouter.post("/sessions/:sessionId/complete", (req, res) => {
+  try {
+    res.json(completeSession(db, LOCAL_USER_ID, req.params.sessionId));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not complete this session." });
+  }
+});
+
+learningRouter.post("/sessions/:sessionId/exit", (req, res) => {
+  try {
+    res.json(exitSession(db, LOCAL_USER_ID, req.params.sessionId));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not exit this session." });
+  }
+});
+
+learningRouter.post("/sessions/:sessionId/review-difficult", (req, res) => {
+  try {
+    const result = startDifficultWordsSession(db, LOCAL_USER_ID, req.params.sessionId);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not start a difficult-words session." });
   }
 });
