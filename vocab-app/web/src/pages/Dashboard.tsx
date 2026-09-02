@@ -27,6 +27,14 @@ export function Dashboard() {
         </Link>
       </div>
 
+      <div className="card p-6 space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">My Vocabulary</h2>
+        <p className="text-sm text-slate-600">Browse, search, and organize every word in your personal vocabulary bank.</p>
+        <Link to="/vocabulary" className="btn-secondary inline-flex w-full sm:w-auto">
+          Open My Vocabulary
+        </Link>
+      </div>
+
       <div className="card p-5">
         <h2 className="text-sm font-medium text-slate-500 mb-2">Backend connection</h2>
         {error && <p className="text-sm text-red-600">{error}</p>}

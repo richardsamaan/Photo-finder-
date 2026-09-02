@@ -22,6 +22,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function toQueryString(params: object): string {
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
+    if (value !== undefined && value !== "") usp.set(key, String(value));
+  }
+  const qs = usp.toString();
+  return qs ? `?${qs}` : "";
+}
+
 export interface HealthResponse {
   ok: boolean;
   app: string;
@@ -73,6 +82,100 @@ export interface SubmitAnswerResponse {
   result: AssessmentResult | null;
 }
 
+export type VocabularyStatus = "new" | "learning" | "familiar" | "mastered";
+export type KnownFilter = "known_before_app" | "learned_through_app";
+export type SortKey = "recent" | "reviewed" | "nextReview" | "mastery" | "alphabetical" | "difficult" | "forgotten";
+
+export interface VocabularyListParams {
+  search?: string;
+  status?: VocabularyStatus;
+  needsReview?: boolean;
+  known?: KnownFilter;
+  difficulty?: Tier;
+  collectionId?: string;
+  sort?: SortKey;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface VocabularyListItem {
+  userVocabularyId: string;
+  wordId: string;
+  word: string;
+  difficultyLevel: Tier | null;
+  pronunciation: string | null;
+  phonetic: string | null;
+  partOfSpeech: string | null;
+  definition: string | null;
+  status: VocabularyStatus;
+  needsReview: boolean;
+  masteryScore: number;
+  knownBeforeApp: boolean;
+  firstEncounteredAt: string;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+}
+
+export interface VocabularyListResult {
+  items: VocabularyListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface VocabularySummary {
+  total: number;
+  new: number;
+  learning: number;
+  familiar: number;
+  mastered: number;
+  needsReview: number;
+  knownBeforeApp: number;
+  learnedThroughApp: number;
+}
+
+export interface WordSenseDetail {
+  definition: string;
+  translation: string | null;
+  partOfSpeech: string;
+  exampleSentence: string | null;
+  pronunciation: string | null;
+  phonetic: string | null;
+  audioUrl: string | null;
+}
+
+export interface WordDetail {
+  userVocabularyId: string;
+  wordId: string;
+  word: string;
+  difficultyLevel: Tier | null;
+  frequencyRank: number | null;
+  status: VocabularyStatus;
+  needsReview: boolean;
+  masteryScore: number;
+  confidenceScore: number;
+  knownBeforeApp: boolean;
+  firstEncounteredAt: string;
+  learnedAt: string | null;
+  lastReviewedAt: string | null;
+  nextReviewAt: string | null;
+  reviewCount: number;
+  correctCount: number;
+  incorrectCount: number;
+  senses: WordSenseDetail[];
+  synonyms: string[];
+  antonyms: string[];
+  related: string[];
+  collections: { id: string; name: string }[];
+}
+
+export interface CollectionSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  wordCount: number;
+}
+
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
 
@@ -86,4 +189,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  listVocabulary: (params: VocabularyListParams) =>
+    request<VocabularyListResult>(`/api/vocabulary${toQueryString(params)}`),
+
+  getVocabularySummary: () => request<VocabularySummary>("/api/vocabulary/summary"),
+
+  getWordDetail: (userVocabularyId: string) => request<WordDetail>(`/api/vocabulary/${userVocabularyId}`),
+
+  addWord: (word: string) =>
+    request<{ userVocabularyId: string; wordId: string; wordCreated: boolean }>("/api/vocabulary/words", {
+      method: "POST",
+      body: JSON.stringify({ word }),
+    }),
+
+  markDontKnow: (wordId: string) =>
+    request<{ userVocabularyId: string }>("/api/vocabulary/dont-know", {
+      method: "POST",
+      body: JSON.stringify({ wordId }),
+    }),
+
+  listCollections: () => request<CollectionSummary[]>("/api/collections"),
+
+  createCollection: (name: string, description?: string) =>
+    request<{ id: string }>("/api/collections", { method: "POST", body: JSON.stringify({ name, description }) }),
+
+  updateCollection: (collectionId: string, patch: { name?: string; description?: string }) =>
+    request<{ ok: boolean }>(`/api/collections/${collectionId}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  deleteCollection: (collectionId: string) =>
+    request<{ ok: boolean }>(`/api/collections/${collectionId}`, { method: "DELETE" }),
+
+  addWordToCollection: (collectionId: string, userVocabularyId: string) =>
+    request<{ ok: boolean }>(`/api/collections/${collectionId}/words`, {
+      method: "POST",
+      body: JSON.stringify({ userVocabularyId }),
+    }),
+
+  removeWordFromCollection: (collectionId: string, userVocabularyId: string) =>
+    request<{ ok: boolean }>(`/api/collections/${collectionId}/words/${userVocabularyId}`, { method: "DELETE" }),
 };

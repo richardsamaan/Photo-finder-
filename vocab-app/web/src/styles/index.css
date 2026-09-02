@@ -27,4 +27,10 @@
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold;
   }
+  .chip {
+    @apply inline-flex items-center whitespace-nowrap rounded-full border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition shrink-0;
+  }
+  .chip-active {
+    @apply bg-brand-600 border-brand-600 text-white;
+  }
 }

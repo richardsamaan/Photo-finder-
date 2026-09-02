@@ -1,8 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import type { db as RealDb } from "../../db/client.js";
-import { languages, words, wordSenses, assessmentSessions, assessmentResponses, userVocabulary } from "../../db/schema.js";
+import { words, wordSenses, assessmentSessions, assessmentResponses } from "../../db/schema.js";
 import { newId } from "../../lib/ids.js";
 import { LOCAL_USER_ID } from "../users/localUser.js";
+import { getEnglishLanguageId } from "../dictionary/language.js";
+import { upsertUserVocabulary } from "../vocabulary-bank/service.js";
 import { MAX_QUESTIONS, STARTING_TIER, nextTier, shouldContinue } from "./adaptiveEngine.js";
 import { buildQuestion, type WordWithSense } from "./questionBank.js";
 import { computeResult, type AssessmentResultPayload } from "./scoring.js";
@@ -17,12 +19,6 @@ interface WordPool {
   beginner: WordWithSense[];
   intermediate: WordWithSense[];
   advanced: WordWithSense[];
-}
-
-function getEnglishLanguageId(db: Db): string {
-  const lang = db.select().from(languages).where(eq(languages.code, "en")).get();
-  if (!lang) throw new Error("English language not seeded - run `npm run db:seed` first.");
-  return lang.id;
 }
 
 function loadWordPool(db: Db, languageId: string): WordPool {
@@ -218,43 +214,21 @@ function completeAssessment(
     .where(eq(assessmentSessions.id, sessionId))
     .run();
 
-  // Upsert (never blind-insert) so re-assessing a word already in the
-  // bank updates it in place instead of violating the (user_id, word_id)
-  // uniqueness constraint.
+  // Reuses the shared upsert (see vocabulary-bank/service.ts) - the same
+  // function "Add Word" and "I don't know this word" use - so re-assessing
+  // a word already in the bank updates it in place instead of violating
+  // the (user_id, word_id) uniqueness constraint.
   for (const r of responses) {
     const known = r.isCorrect && !r.dontKnow;
-    const existing = db
-      .select()
-      .from(userVocabulary)
-      .where(and(eq(userVocabulary.userId, userId), eq(userVocabulary.wordId, r.wordId)))
-      .get();
-
-    if (existing) {
-      db.update(userVocabulary)
-        .set({
-          status: known ? "familiar" : "new",
-          knownBeforeApp: known,
-          masteryScore: known ? 60 : 0,
-          confidenceScore: known ? 70 : 0,
-        })
-        .where(eq(userVocabulary.id, existing.id))
-        .run();
-    } else {
-      db.insert(userVocabulary)
-        .values({
-          id: newId("uv"),
-          userId,
-          wordId: r.wordId,
-          // Recognized correctly during assessment = "familiar" (they
-          // recognize it), never "mastered" - the assessment only tests
-          // recognition, not active production/usage.
-          status: known ? "familiar" : "new",
-          knownBeforeApp: known,
-          masteryScore: known ? 60 : 0,
-          confidenceScore: known ? 70 : 0,
-        })
-        .run();
-    }
+    upsertUserVocabulary(db, userId, r.wordId, {
+      // Recognized correctly during assessment = "familiar" (they
+      // recognize it), never "mastered" - the assessment only tests
+      // recognition, not active production/usage.
+      status: known ? "familiar" : "new",
+      knownBeforeApp: known,
+      masteryScore: known ? 60 : 0,
+      confidenceScore: known ? 70 : 0,
+    });
   }
 
   return { sessionId, ...stats, isBaseline };

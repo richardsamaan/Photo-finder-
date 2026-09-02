@@ -2,6 +2,8 @@ import { Routes, Route } from "react-router-dom";
 import { Navbar } from "./components/Navbar";
 import { Dashboard } from "./pages/Dashboard";
 import { Assessment } from "./pages/Assessment";
+import { MyVocabulary } from "./pages/MyVocabulary";
+import { WordDetail } from "./pages/WordDetail";
 
 export default function App() {
   return (
@@ -11,6 +13,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/assessment" element={<Assessment />} />
+          <Route path="/vocabulary" element={<MyVocabulary />} />
+          <Route path="/vocabulary/:userVocabularyId" element={<WordDetail />} />
         </Routes>
       </main>
     </div>

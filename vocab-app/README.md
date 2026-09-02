@@ -15,31 +15,48 @@ etc. later means adding rows, not redesigning tables.
 
 ---
 
-## Status: Phase 3 - initial vocabulary assessment
+## Status: Phase 4 - My Vocabulary / personal vocabulary bank
 
 What exists right now:
 
 - Express + TypeScript API server with a health endpoint and SQLite wiring
   (via `better-sqlite3` + Drizzle ORM).
-- The full language-agnostic database schema, now including assessment
-  storage: `languages`, `words`, `word_senses`, `word_relations`, `users`,
-  `user_settings`, `user_vocabulary` (with a `known_before_app` flag),
-  `assessment_sessions`, `assessment_responses`, `vocabulary_review_history`,
-  `vocabulary_collections`, `collection_words`, `learning_sessions`. See
-  `docs/database-architecture.md` for the entity relationships and the
-  reasoning behind the shared-dictionary/personal-vocabulary split.
+- The full language-agnostic database schema (unchanged since Phase 2 -
+  Phase 4 needed no schema additions): `languages`, `words`, `word_senses`,
+  `word_relations`, `users`, `user_settings`, `user_vocabulary` (with a
+  `known_before_app` flag), `assessment_sessions`, `assessment_responses`,
+  `vocabulary_review_history`, `vocabulary_collections`, `collection_words`,
+  `learning_sessions`. See `docs/database-architecture.md` for the entity
+  relationships.
 - **Initial vocabulary assessment**: an adaptive multiple-choice test
-  (`/assessment`) that moves up or down in difficulty based on each
-  answer, distinguishes "I don't know" from a wrong guess, and never
-  leaks the correct answer to the client. On completion it produces a
-  clearly-labeled *estimate* (never a hardcoded number) of vocabulary
-  size, an illustrative CEFR-style level, and a confidence rating - then
-  adds unrecognized words to `user_vocabulary` as `new` (the first
-  learning bank) while marking confidently-known words as `familiar` with
-  `known_before_app = true`, so they're never counted as "learned through
-  the app." The first completed assessment is flagged `is_baseline` for
-  future genuine-growth statistics; later re-assessments are separate
-  session rows, so history is never overwritten.
+  (`/assessment`) that discovers what the user already knows vs. what's
+  new, producing a clearly-labeled estimate, level, and confidence rating.
+- **My Vocabulary** (`/vocabulary`): the central library of the user's
+  personal vocabulary bank.
+  - Summary stat tiles (total, learning, needs review, mastered) computed
+    from the database via SQL aggregation, plus a dedicated **known
+    before app vs. learned through app** split so progress is never
+    inflated by counting words the user already knew.
+  - Search (word, definition, translation, part of speech - case
+    insensitive), a single-select filter row (All / New / Learning /
+    Familiar / Mastered / Needs Review / Known Before App / Learned
+    Through App), 7 sort options, and pagination - all server-side so
+    this stays fast as a vocabulary grows into the thousands.
+  - A word detail page with pronunciation, all meanings, examples,
+    synonyms/antonyms/related words, mastery/status, review history
+    dates, collection membership, and actions: mark "I don't know this,"
+    copy word, copy details, add/remove collections.
+  - **Add Word**: manually add any word - reuses the dictionary entry if
+    it exists, otherwise creates a bare entry with an honest "not yet
+    available" placeholder rather than an invented definition.
+  - **Collections**: create, rename, delete, and manage membership
+    (a word can belong to several), via a lightweight bottom-sheet
+    manager - independent of mastery status.
+  - "I don't know this word" is one reusable service function
+    (`upsertUserVocabulary`) - the same one the assessment and Add Word
+    both call, so every future capture path (AI conversation, imported
+    text, etc.) has one place to plug into instead of reimplementing this
+    logic per screen.
 - A single local user is created automatically on first server start
   (single-local-user mode, per the approved scope) - every personal table
   already keys off a real `user_id`, so real multi-user auth later is
@@ -48,11 +65,10 @@ What exists right now:
   across all three difficulty tiers, multiple parts of speech, a
   multi-sense word (`bank`), and a few synonym/antonym relations - loaded
   via `npm run db:seed`.
-- 32 tests (11 database + 21 assessment: adaptive tier movement, scoring,
-  and full end-to-end session flow) - all passing.
-- React + TypeScript + Vite + Tailwind frontend, mobile-first, with a
-  Dashboard page (health check + assessment entry point) and a full
-  intro → question → result assessment flow.
+- 58 tests (11 database + 21 assessment + 26 vocabulary bank/collections)
+  - all passing.
+- React + TypeScript + Vite + Tailwind frontend, mobile-first, with
+  Dashboard, Assessment, My Vocabulary, and Word Detail screens.
 - Same conventions as the root Product Image Finder app (npm workspaces,
   hand-written idempotent SQL migrations, typed fetch client, `.env`-based
   config) so the two apps are easy to reason about side by side.
@@ -139,31 +155,35 @@ NODE_ENV=production npm run start
 
 ---
 
-## Testing performed (Phase 3)
+## Testing performed (Phase 4)
 
-- `npm run test -w server` - 32/32 tests passing: the 11 Phase 2 database
-  tests plus 21 new ones covering adaptive tier movement, scoring
-  (known/learning split, vocabulary-size estimate, confidence levels), and
-  a full end-to-end assessment flow (session start, real seeded questions,
-  multi-tier coverage, correct/incorrect/"I don't know" recording,
-  preserved history across sessions, known-before-app words excluded from
-  "learned," unknown words added as `new`, no duplicate `user_vocabulary`
-  rows on re-assessment, and the baseline flag set only on the first
-  completed session).
-- `npm run build` (server + web) - both compile cleanly with no TypeScript
-  errors.
-- Fresh `npm run db:push` + `npm run db:seed` (45 words) verified from
-  scratch, then the full test suite re-run clean against it.
-- Exercised the real running API end-to-end with scripted HTTP requests:
-  confirmed a full 20-question adaptive session completes, tier movement
-  responds to right/wrong answers, and the resulting `assessment_sessions`
-  / `assessment_responses` / `user_vocabulary` rows in the actual SQLite
-  file matched the API's reported result exactly.
+- `npm run test -w server` - 58/58 tests passing: 11 Phase 2 database + 21
+  Phase 3 assessment + 26 new (vocabulary bank: user-scoping, search
+  including case-insensitivity, every filter, sorting, word detail
+  completeness including multi-sense words, Add Word for both new and
+  existing words, "I don't know" create-and-reset behavior, empty states,
+  aggregated summary counts; collections: create, duplicate-name
+  rejection, add/remove/multi-membership, deleting a collection leaves
+  the word and dictionary entry untouched, ownership enforcement).
+- `npm run build` (server + web) - both compile cleanly with no
+  TypeScript errors.
+- Fresh `npm run db:push` + `npm run db:seed` verified from scratch, then
+  the full test suite re-run clean against it.
+- Exercised the real running API end-to-end with scripted HTTP requests
+  covering add word, word detail, create/list collections, add/remove
+  collection membership, then ran a real assessment through the API and
+  confirmed search/filter/sort against the resulting real data (e.g. a
+  definition-text search correctly matched a word whose definition
+  contained the search term, even though the word itself didn't).
 - Drove the real UI in a headless browser at a 412×915 (Galaxy S24
-  Ultra-class) viewport through the entire intro → 20 questions → result
-  flow, screenshotting each stage - confirmed large touch-friendly
-  buttons, a clear progress indicator, and a correctly labeled
-  estimate/confidence/level result screen.
+  Ultra-class) viewport: My Vocabulary (stat tiles, filter chips, search,
+  collections row, sort), the collections manager bottom sheet (create),
+  Add Word (with the honest "Definition not yet available" placeholder,
+  no invented content), and the word detail page (meanings, dates,
+  collection checkboxes, actions) - all screenshotted and visually
+  confirmed correct.
+- Confirmed the assessment (Phase 3) still completes correctly end-to-end
+  after the `upsertUserVocabulary` refactor that both features now share.
 - Confirmed the root Product Image Finder app still starts, and its full
   31-test suite still passes, unaffected by this addition.
 - Confirmed via `git status`/`git diff` that no file outside `vocab-app/`
