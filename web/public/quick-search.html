@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quick Photo Search</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f8fafc;
+    color: #0f172a;
+  }
+  header {
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header .logo {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: #4f46e5; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  header a { margin-left: auto; font-size: 13px; color: #4f46e5; text-decoration: none; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  form {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+  @media (max-width: 720px) {
+    form { grid-template-columns: 1fr; }
+  }
+  label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 4px; }
+  input[type="text"], input[type="search"] {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .colour-row { display: flex; gap: 6px; align-items: center; }
+  input[type="color"] { width: 40px; height: 36px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 6px; }
+  button {
+    background: #4f46e5;
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    height: 38px;
+  }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .status { margin: 14px 0; font-size: 13px; color: #475569; }
+  .status.error { color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 8px; }
+  .status.info { color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 12px; border-radius: 8px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .thumb {
+    aspect-ratio: 1 / 1;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .meta { padding: 10px 12px; font-size: 12px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
+  .card .meta a { color: #4f46e5; text-decoration: none; word-break: break-all; }
+  .card .res-badge {
+    display: inline-block;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .rank { position: relative; }
+  .rank .num {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(15,23,42,0.75); color: #fff;
+    font-size: 11px; font-weight: 700;
+    padding: 2px 7px; border-radius: 999px;
+  }
+  footer { text-align: center; color: #94a3b8; font-size: 12px; padding: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">📷</div>
+  <h1>Quick Photo Search</h1>
+  <a href="/">Full catalog tool →</a>
+</header>
+<main>
+  <form id="search-form">
+    <div>
+      <label for="query">Item name / description</label>
+      <input type="text" id="query" name="query" placeholder="e.g. Nike Air Force 1 sneaker" required />
+    </div>
+    <div>
+      <label for="colourName">Colour name (optional)</label>
+      <input type="text" id="colourName" name="colourName" placeholder="e.g. burgundy" />
+    </div>
+    <div>
+      <label for="colourHex">Colour code (optional)</label>
+      <div class="colour-row">
+        <input type="color" id="colourPicker" value="#000000" />
+        <input type="text" id="colourHex" name="colourHex" placeholder="#1A1A1A" maxlength="7" />
+      </div>
+    </div>
+    <div>
+      <button type="submit" id="submit-btn">Search</button>
+    </div>
+  </form>
+
+  <div id="status" class="status" hidden></div>
+  <div id="grid" class="grid"></div>
+</main>
+<footer>Results are fetched live from your configured search provider &mdash; no cached or fabricated results.</footer>
+
+<script>
+(function () {
+  var form = document.getElementById("search-form");
+  var statusEl = document.getElementById("status");
+  var grid = document.getElementById("grid");
+  var submitBtn = document.getElementById("submit-btn");
+  var colourHexInput = document.getElementById("colourHex");
+  var colourPicker = document.getElementById("colourPicker");
+
+  colourPicker.addEventListener("input", function () {
+    colourHexInput.value = colourPicker.value;
+  });
+  colourHexInput.addEventListener("input", function () {
+    var v = colourHexInput.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(v)) colourPicker.value = v;
+  });
+
+  function setStatus(kind, message) {
+    if (!message) {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+      statusEl.className = "status";
+      return;
+    }
+    statusEl.hidden = false;
+    statusEl.textContent = message;
+    statusEl.className = "status " + kind;
+  }
+
+  function escapeHtml(s) {
+    var div = document.createElement("div");
+    div.textContent = s == null ? "" : s;
+    return div.innerHTML;
+  }
+
+  function renderResults(results) {
+    grid.innerHTML = "";
+    if (!results.length) {
+      setStatus("info", "No results met the quality bar (min. 800px shortest side, non-watermarked). Try a broader description or drop the colour filter.");
+      return;
+    }
+    results.forEach(function (r, i) {
+      var card = document.createElement("div");
+      card.className = "card rank";
+
+      var thumb = document.createElement("div");
+      thumb.className = "thumb";
+      var img = document.createElement("img");
+      img.src = r.imageUrl;
+      img.alt = r.title || "";
+      img.loading = "lazy";
+      img.referrerPolicy = "no-referrer";
+      thumb.appendChild(img);
+
+      var num = document.createElement("div");
+      num.className = "num";
+      num.textContent = "#" + (i + 1);
+
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var resText = (r.width && r.height) ? (r.width + " × " + r.height + "px") : "resolution unknown";
+      meta.innerHTML =
+        '<span class="res-badge">' + escapeHtml(resText) + "</span>" +
+        '<span>' + escapeHtml(r.domain || "") + "</span>" +
+        '<a href="' + encodeURI(r.sourceUrl) + '" target="_blank" rel="noopener noreferrer">Source ↗</a>';
+
+      card.appendChild(num);
+      card.appendChild(thumb);
+      card.appendChild(meta);
+      grid.appendChild(card);
+    });
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var query = document.getElementById("query").value.trim();
+    var colourName = document.getElementById("colourName").value.trim();
+    var colourHex = colourHexInput.value.trim();
+
+    if (!query) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Searching…";
+    grid.innerHTML = "";
+    setStatus("info", "Running multiple search queries and ranking candidates by resolution" + (colourHex ? " and colour match" : "") + " — this can take a few seconds…");
+
+    fetch("/api/quick-search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: query,
+        colourName: colourName || undefined,
+        colourHex: colourHex || undefined,
+      }),
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data.error || "Search failed.");
+          return data;
+        });
+      })
+      .then(function (data) {
+        setStatus(null, null);
+        renderResults(data.results || []);
+      })
+      .catch(function (err) {
+        setStatus("error", err.message || "Search failed.");
+      })
+      .finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Search";
+      });
+  });
+})();
+</script>
+</body>
+</html>

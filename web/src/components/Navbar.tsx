@@ -13,11 +13,16 @@ export function Navbar() {
           </span>
           <span className="hidden xs:inline sm:inline">Product Image Finder</span>
         </Link>
-        {!isHome && (
-          <Link to="/" className="btn-secondary !py-1.5 !px-3 text-xs sm:text-sm">
-            ← All Imports
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          <a href="/quick-search.html" className="btn-secondary !py-1.5 !px-3 text-xs sm:text-sm">
+            Quick Search
+          </a>
+          {!isHome && (
+            <Link to="/" className="btn-secondary !py-1.5 !px-3 text-xs sm:text-sm">
+              ← All Imports
+            </Link>
+          )}
+        </div>
       </div>
     </header>
   );
