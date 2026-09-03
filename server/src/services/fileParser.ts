@@ -57,12 +57,25 @@ const CATEGORY_ALIASES = [
   "type",
   "product type",
   "department",
+  "product group",
+  "line",
+];
+
+const SEASON_ALIASES = [
+  "season",
+  "collection season",
+  "seasonal collection",
+  "collection",
+  "ss/aw",
+  "drop",
 ];
 
 export interface ColumnMapping {
   styleCode: string | null;
   colour: string | null;
   category: string | null;
+  /** Optional - does not affect `confident`. */
+  season: string | null;
   confident: boolean;
 }
 
@@ -90,8 +103,11 @@ export function detectColumns(headers: string[]): ColumnMapping {
   const styleCode = findBestMatch(headers, STYLE_CODE_ALIASES);
   const colour = findBestMatch(headers, COLOUR_ALIASES);
   const category = findBestMatch(headers, CATEGORY_ALIASES);
+  const season = findBestMatch(headers, SEASON_ALIASES);
 
+  // styleCode/colour/category remain required for a "confident" auto-mapping;
+  // season is an optional column and never blocks that.
   const confident = Boolean(styleCode && colour && category);
 
-  return { styleCode, colour, category, confident };
+  return { styleCode, colour, category, season, confident };
 }

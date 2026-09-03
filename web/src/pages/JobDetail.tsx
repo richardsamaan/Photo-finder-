@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError, type Product } from "../api/client";
+import { api, ApiError, type Product, type DomainFilterMode } from "../api/client";
 import { useJobPolling } from "../hooks/useJobPolling";
 import { StatCard } from "../components/StatCard";
 import { ProgressBar } from "../components/ProgressBar";
 import { ProductCard } from "../components/ProductCard";
+
+const DOMAIN_FILTER_LABELS: Record<DomainFilterMode, string> = {
+  none: "No restriction",
+  official_only: "Official brand domain only",
+  official_plus_allowlist: "Official domain + trusted retailers",
+};
 
 const FILTERS: { key: string; label: string; statuses?: string[] }[] = [
   { key: "all", label: "All" },
@@ -71,7 +77,7 @@ export function JobDetail() {
   if (error) return <div className="card p-4 text-red-600 text-sm">{error}</div>;
   if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
 
-  const { job, stats, categories, searchConfigured, activeProvider, runnerState } = data;
+  const { job, stats, categories, searchConfigured, activeProvider, runnerState, quota, phase } = data;
   const isRunning = job.status === "running" || runnerState === "running";
   const isPaused = job.status === "paused" || runnerState === "paused";
 
@@ -80,7 +86,10 @@ export function JobDetail() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{job.filename}</h1>
-          <p className="text-sm text-slate-500">Job status: {job.status}</p>
+          <p className="text-sm text-slate-500">
+            Job status: {job.status}
+            {!phase.done && phase.current && ` · Search phase ${phase.current} of 3`}
+          </p>
         </div>
       </div>
 
@@ -91,6 +100,18 @@ export function JobDetail() {
           search. Until then, products can still be reviewed manually via image upload.
         </div>
       )}
+
+      {job.pauseReason === "quota_reached" && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+          <strong>Daily search quota reached — resume tomorrow.</strong> {quota.used}/{quota.cap} provider queries
+          used in the current 24h window (resets {new Date(quota.resetsAt).toLocaleString()}). Everything already
+          found is safely cached — clicking Resume later will continue exactly where this run left off.
+        </div>
+      )}
+
+      <div className="text-xs text-slate-500">
+        Search quota: {quota.used}/{quota.cap} used today · {quota.remaining} remaining
+      </div>
 
       <ProgressBar value={job.processedProducts} max={job.totalProducts} />
 
@@ -146,7 +167,14 @@ export function JobDetail() {
         <StatCard label="Medium Confidence" value={stats.mediumConfidence} tone="warning" />
       </div>
 
-      <ExportPanel jobId={job.id} approvedCount={stats.approved} categories={categories} />
+      <DomainFilterSettings
+        jobId={job.id}
+        domainFilterMode={job.domainFilterMode}
+        officialDomain={job.officialDomain}
+        onUpdated={refresh}
+      />
+
+      <ExportPanel jobId={job.id} approvedCount={stats.approved} categories={categories} notFoundCount={stats.notFound} />
 
       <div className="flex flex-col gap-3">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
@@ -203,14 +231,86 @@ export function JobDetail() {
   );
 }
 
+function DomainFilterSettings({
+  jobId,
+  domainFilterMode,
+  officialDomain,
+  onUpdated,
+}: {
+  jobId: string;
+  domainFilterMode: DomainFilterMode;
+  officialDomain: string | null;
+  onUpdated: () => Promise<unknown> | void;
+}) {
+  const [mode, setMode] = useState<DomainFilterMode>(domainFilterMode);
+  const [domain, setDomain] = useState(officialDomain ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMode(domainFilterMode);
+    setDomain(officialDomain ?? "");
+  }, [domainFilterMode, officialDomain]);
+
+  const dirty = mode !== domainFilterMode || domain !== (officialDomain ?? "");
+  const invalid = mode !== "none" && !domain.trim();
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api.updateJobSettings(jobId, { domainFilterMode: mode, officialDomain: mode === "none" ? null : domain });
+      await onUpdated();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Failed to save settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="card p-4 flex flex-col gap-3">
+      <h2 className="font-semibold text-slate-900 text-sm">Source domain restriction</h2>
+      <select
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white max-w-sm"
+        value={mode}
+        onChange={(e) => setMode(e.target.value as DomainFilterMode)}
+      >
+        {(Object.keys(DOMAIN_FILTER_LABELS) as DomainFilterMode[]).map((m) => (
+          <option key={m} value={m}>
+            {DOMAIN_FILTER_LABELS[m]}
+          </option>
+        ))}
+      </select>
+      {mode !== "none" && (
+        <input
+          type="text"
+          placeholder="e.g. hugoboss.com"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white max-w-sm"
+          value={domain}
+          onChange={(e) => setDomain(e.target.value)}
+        />
+      )}
+      {dirty && (
+        <button className="btn-secondary w-fit" disabled={saving || invalid} onClick={save}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      )}
+      {err && <div className="text-sm text-red-600">{err}</div>}
+    </div>
+  );
+}
+
 function ExportPanel({
   jobId,
   approvedCount,
   categories,
+  notFoundCount,
 }: {
   jobId: string;
   approvedCount: number;
   categories: string[];
+  notFoundCount: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -261,6 +361,11 @@ function ExportPanel({
         <a className="btn-success" href={`/api/export/${jobId}/download/catalog-zip`}>
           ⬇ Download ZIP
         </a>
+        {notFoundCount > 0 && (
+          <a className="btn-secondary" href={`/api/export/${jobId}/download/not-found.xlsx`}>
+            ⬇ Not Found ({notFoundCount}).xlsx
+          </a>
+        )}
       </div>
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">

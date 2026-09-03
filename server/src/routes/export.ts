@@ -1,6 +1,7 @@
 import { Router } from "express";
 import fs from "node:fs";
 import path from "node:path";
+import * as XLSX from "xlsx";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { jobs, products } from "../db/schema.js";
@@ -82,4 +83,34 @@ exportRouter.get("/:id/download/catalog-zip", (req, res) => {
   const job = db.select().from(jobs).where(eq(jobs.id, req.params.id)).get();
   if (!job) return res.status(404).json({ error: "Job not found." });
   sendFileFromCatalog(res, job.id, ["Product_Catalog.zip"]);
+});
+
+// Export everything still "not found" as an Excel file in the same column
+// format as the input, purely for visibility - the job itself tracks resume
+// state internally and does not require this file to be re-uploaded.
+exportRouter.get("/:id/download/not-found.xlsx", (req, res) => {
+  const job = db.select().from(jobs).where(eq(jobs.id, req.params.id)).get();
+  if (!job) return res.status(404).json({ error: "Job not found." });
+
+  const rows = db
+    .select()
+    .from(products)
+    .where(and(eq(products.jobId, job.id), eq(products.status, "not_found")))
+    .all();
+
+  const data = rows.map((r) => ({
+    "Style Code": r.styleCode,
+    Colour: r.colour,
+    Category: r.category,
+    Season: r.season ?? "",
+  }));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data, { header: ["Style Code", "Colour", "Category", "Season"] });
+  XLSX.utils.book_append_sheet(wb, ws, "Not Found");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", 'attachment; filename="not_found_items.xlsx"');
+  res.send(buffer);
 });

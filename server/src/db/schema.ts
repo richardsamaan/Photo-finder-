@@ -17,10 +17,19 @@ export const jobs = sqliteTable("jobs", {
   })
     .notNull()
     .default("draft"),
-  columnMapping: text("column_mapping"), // JSON: {styleCode, colour, category}
+  columnMapping: text("column_mapping"), // JSON: {styleCode, colour, category, season}
   totalProducts: integer("total_products").notNull().default(0),
   processedProducts: integer("processed_products").notNull().default(0),
   concurrency: integer("concurrency").notNull().default(3),
+  // Source-domain restriction for search results - see services/sourceTier.ts.
+  domainFilterMode: text("domain_filter_mode", {
+    enum: ["none", "official_only", "official_plus_allowlist"],
+  })
+    .notNull()
+    .default("none"),
+  officialDomain: text("official_domain"), // e.g. "hugoboss.com" - required when domainFilterMode != "none"
+  // Set when a running job stops itself rather than being paused by a user.
+  pauseReason: text("pause_reason", { enum: ["user", "quota_reached"] }),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
 });
@@ -47,6 +56,10 @@ export const products = sqliteTable(
     styleCode: text("style_code").notNull(),
     colour: text("colour").notNull(),
     category: text("category").notNull(),
+    season: text("season"),
+    // Highest escalating search phase this product has completed (0 = not yet
+    // attempted). See services/phaseEngine.ts for the phase state machine.
+    searchPhase: integer("search_phase").notNull().default(0),
     status: text("status", {
       enum: [
         "pending",
@@ -184,3 +197,11 @@ export const searchCache = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
   }
 );
+
+// Single-row (id: "singleton") persisted counter for the rolling 24h
+// search-provider quota window - see services/quotaGovernor.ts.
+export const searchQuota = sqliteTable("search_quota", {
+  id: text("id").primaryKey(),
+  windowStart: text("window_start").notNull(),
+  count: integer("count").notNull().default(0),
+});

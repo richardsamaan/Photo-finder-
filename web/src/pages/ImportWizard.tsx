@@ -1,8 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, ApiError, type ImportUploadResponse, type ImportPreviewResponse } from "../api/client";
+import {
+  api,
+  ApiError,
+  type ImportUploadResponse,
+  type ImportPreviewResponse,
+  type DomainFilterMode,
+} from "../api/client";
 
 type Step = "upload" | "mapping";
+
+const DOMAIN_FILTER_OPTIONS: { value: DomainFilterMode; label: string; hint: string }[] = [
+  { value: "none", label: "No restriction", hint: "Any source that passes style-code/colour/category verification." },
+  { value: "official_only", label: "Official brand domain only", hint: "Only results from the official domain below." },
+  {
+    value: "official_plus_allowlist",
+    label: "Official domain + trusted retailers",
+    hint: "Official domain plus a curated allowlist of major authorized retailers.",
+  },
+];
 
 export function ImportWizard() {
   const navigate = useNavigate();
@@ -12,7 +28,9 @@ export function ImportWizard() {
   const [dragOver, setDragOver] = useState(false);
 
   const [imported, setImported] = useState<ImportUploadResponse | null>(null);
-  const [mapping, setMapping] = useState({ styleCode: "", colour: "", category: "" });
+  const [mapping, setMapping] = useState({ styleCode: "", colour: "", category: "", season: "" });
+  const [domainFilterMode, setDomainFilterMode] = useState<DomainFilterMode>("none");
+  const [officialDomain, setOfficialDomain] = useState("");
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -28,6 +46,7 @@ export function ImportWizard() {
         styleCode: res.mapping.styleCode ?? "",
         colour: res.mapping.colour ?? "",
         category: res.mapping.category ?? "",
+        season: res.mapping.season ?? "",
       });
       setStep("mapping");
     } catch (err) {
@@ -68,7 +87,12 @@ export function ImportWizard() {
     if (!imported) return;
     setConfirming(true);
     try {
-      const res = await api.confirmImport(imported.token, mapping);
+      const res = await api.confirmImport(imported.token, {
+        ...mapping,
+        season: mapping.season || undefined,
+        domainFilterMode,
+        officialDomain: domainFilterMode !== "none" ? officialDomain : undefined,
+      });
       navigate(`/jobs/${res.jobId}`);
     } catch (err) {
       setUploadError(err instanceof ApiError ? err.message : "Import failed.");
@@ -76,6 +100,8 @@ export function ImportWizard() {
       setConfirming(false);
     }
   }
+
+  const domainFilterInvalid = domainFilterMode !== "none" && !officialDomain.trim();
 
   if (step === "upload") {
     return (
@@ -163,6 +189,21 @@ export function ImportWizard() {
             </select>
           </label>
         ))}
+        <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-slate-700">Season (optional)</span>
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white"
+            value={mapping.season}
+            onChange={(e) => setMapping((m) => ({ ...m, season: e.target.value }))}
+          >
+            <option value="">— None —</option>
+            {headers.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {!imported?.mapping.confident && (
@@ -170,6 +211,42 @@ export function ImportWizard() {
           We couldn't confidently auto-detect all columns — please confirm the mapping above.
         </div>
       )}
+
+      <div className="card p-4 flex flex-col gap-3">
+        <h2 className="font-semibold text-slate-900 text-sm">Source domain restriction</h2>
+        <div className="flex flex-col gap-2">
+          {DOMAIN_FILTER_OPTIONS.map((opt) => (
+            <label key={opt.value} className="flex items-start gap-2 text-sm">
+              <input
+                type="radio"
+                name="domainFilterMode"
+                className="mt-1"
+                checked={domainFilterMode === opt.value}
+                onChange={() => setDomainFilterMode(opt.value)}
+              />
+              <span>
+                <span className="font-medium text-slate-700">{opt.label}</span>
+                <span className="block text-xs text-slate-500">{opt.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {domainFilterMode !== "none" && (
+          <label className="flex flex-col gap-1.5 text-sm max-w-xs">
+            <span className="font-medium text-slate-700">Official brand domain</span>
+            <input
+              type="text"
+              placeholder="e.g. hugoboss.com"
+              className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white"
+              value={officialDomain}
+              onChange={(e) => setOfficialDomain(e.target.value)}
+            />
+            {domainFilterInvalid && (
+              <span className="text-xs text-red-600">Required when a source-domain restriction is selected.</span>
+            )}
+          </label>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="card p-3 sm:p-4">
@@ -199,6 +276,7 @@ export function ImportWizard() {
                 <th className="text-left px-4 py-2 font-medium">Style Code</th>
                 <th className="text-left px-4 py-2 font-medium">Colour</th>
                 <th className="text-left px-4 py-2 font-medium">Category</th>
+                <th className="text-left px-4 py-2 font-medium">Season</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -207,6 +285,7 @@ export function ImportWizard() {
                   <td className="px-4 py-2 whitespace-nowrap">{row.styleCode || <em className="text-slate-300">—</em>}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{row.colour || <em className="text-slate-300">—</em>}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{row.category || <em className="text-slate-300">—</em>}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{row.season || <em className="text-slate-300">—</em>}</td>
                 </tr>
               ))}
             </tbody>
@@ -227,7 +306,14 @@ export function ImportWizard() {
         </button>
         <button
           className="btn-primary"
-          disabled={!mapping.styleCode || !mapping.colour || !mapping.category || validRows === 0 || confirming}
+          disabled={
+            !mapping.styleCode ||
+            !mapping.colour ||
+            !mapping.category ||
+            validRows === 0 ||
+            confirming ||
+            domainFilterInvalid
+          }
           onClick={handleConfirm}
         >
           {confirming ? "Importing…" : `Confirm Import (${validRows || totalRows} products)`}

@@ -90,3 +90,31 @@ export function trustScoreForTier(tier: SourceTier): number {
       return 55;
   }
 }
+
+// --- Optional per-job source-domain restriction ---
+// "none" preserves the original unrestricted behaviour (any source that
+// passes style-code/colour/category verification); the other two modes
+// narrow the candidate pool itself, before verification ever runs.
+
+export type DomainFilterMode = "none" | "official_only" | "official_plus_allowlist";
+
+export function domainMatchesOfficial(domain: string, officialDomain: string): boolean {
+  const d = domain.toLowerCase().replace(/^www\./, "");
+  const o = officialDomain.trim().toLowerCase().replace(/^www\./, "");
+  if (!o) return false;
+  return d === o || d.endsWith(`.${o}`);
+}
+
+export function isDomainAllowed(
+  domain: string,
+  mode: DomainFilterMode,
+  officialDomain: string | null | undefined
+): boolean {
+  if (mode === "none") return true;
+
+  const isOfficial = Boolean(officialDomain) && domainMatchesOfficial(domain, officialDomain!);
+  if (mode === "official_only") return isOfficial;
+
+  // official_plus_allowlist
+  return isOfficial || RELIABLE_RETAILERS.has(domain.toLowerCase());
+}

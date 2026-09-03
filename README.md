@@ -51,6 +51,47 @@ production (Express static, since `vite build` copies `public/` into `dist/`).
 
 ---
 
+## 1b. Multi-day search with a daily quota (large imports)
+
+For a product list too large to search in one day against a free-tier
+provider quota (e.g. Google CSE's 100 queries/day), **Start Search** now
+runs the whole job through an escalating, quota-governed strategy instead of
+firing every query for every product up front:
+
+- **Daily quota governor** (`services/quotaGovernor.ts`): a persisted SQLite
+  counter tracks provider queries in a rolling 24h window, capped by
+  `DAILY_SEARCH_QUOTA` (default 95, see §4). The moment a run would exceed
+  the remaining budget it stops cleanly - no error, the in-progress item
+  queue is left untouched - and the Job Detail page shows **"Daily search
+  quota reached - resume tomorrow"**. Clicking **Resume** later (once the
+  window has rolled over) continues exactly where it left off, and the
+  existing styleCode+colour cache means nothing already found is ever
+  re-queried.
+- **Three-phase escalation** (`services/phaseEngine.ts`): every product
+  first gets exactly **1** query (Phase 1). Only once *every* product in the
+  job has had its Phase 1 attempt does Phase 2 begin, retrying items still
+  `not_found` with **2** query variants; likewise Phase 3 (up to **4**
+  variants, matching the original single-pass behaviour) only starts once
+  every item has finished Phase 2. The runner always works the earliest
+  incomplete phase across the whole job, and if a phase finishes with quota
+  still available it falls straight through to the next phase in the same
+  run rather than waiting for a new day.
+- **Optional source-domain filter**: each job can restrict search results to
+  the official brand domain only, the official domain plus a curated
+  allowlist of major retailers (`services/sourceTier.ts`), or no
+  restriction (the original behaviour) - set at import time or later from
+  the Job Detail page.
+- Regenerating the PDFs/ZIP after any day's run always reflects the job's
+  full current state (every approved product so far) - there's no
+  per-day partial export to merge by hand. A **Not Found (.xlsx)** download
+  on the Job Detail page lists everything still unresolved, in the same
+  column format as the input, purely for visibility.
+- "Search Selected" and "Retry Failed" bypass the phase governor and quota
+  gate entirely (same as before this feature) since they're an explicit,
+  one-off request for specific items right now.
+
+---
+
 ## 1. Architecture
 
 ```
@@ -174,6 +215,7 @@ Copy `.env.example` to `.env`. Full reference:
 | `SEARCH_RATE_LIMIT_MS` | no (default 600) | Minimum gap between provider HTTP calls |
 | `SEARCH_MAX_RETRIES` | no (default 2) | Retries per query on provider error |
 | `MAX_UPLOAD_MB` / `MAX_IMAGE_MB` | no | Upload size limits |
+| `DAILY_SEARCH_QUOTA` | no (default 95) | Real provider queries allowed per rolling 24h window (Google CSE free tier: 100/day - default leaves headroom for retries) |
 
 **With `SEARCH_PROVIDER=none` (the default), the app runs fully and
 honestly - import, review UI, manual image upload, PDF/ZIP export all work -
@@ -189,16 +231,22 @@ To enable real search, pick **one** provider, get its API key, set
 
 1. **Upload** an `.xlsx`, `.xls`, or `.csv` file with Style Code, Colour, and
    Category columns (common header variants like `SKU`, `Color`, `Product
-   Type` are auto-detected).
+   Type` are auto-detected); an optional Season column is also detected if
+   present (`Season`, `Collection`, `Drop`, etc.).
 2. **Map columns** - auto-detected mapping is pre-filled; change any dropdown
    if needed. A live preview table and Total Products / Total Categories
-   counters update as you adjust the mapping.
+   counters update as you adjust the mapping. Also choose a **source-domain
+   restriction** (none / official domain only / official + trusted
+   retailers) - see §1b.
 3. **Confirm Import** (or Cancel) - creates the job and every product row.
 4. On the **Job Detail** page: **Start Search** (requires a configured
-   provider), or **Pause / Resume / Cancel / Retry Failed / Search Selected**
-   while it runs. Live stats (Total, Images Found, High/Medium Confidence,
-   Needs Review, Not Found, Approved, Rejected, Failed, Pending) and a
-   progress bar update automatically.
+   provider) runs the quota-governed, phase-escalating search across the
+   whole job (see §1b), or **Pause / Resume / Cancel / Retry Failed / Search
+   Selected** while it runs. Live stats (Total, Images Found, High/Medium
+   Confidence, Needs Review, Not Found, Approved, Rejected, Failed, Pending),
+   the current search phase, remaining daily quota, and a progress bar update
+   automatically. The source-domain restriction can also be changed here at
+   any time.
 5. Open any product to **Review**: see the image, evidence notes, confidence,
    source. **Approve** downloads and stores the image; **Reject** discards
    it; **Search Again** re-runs the pipeline (bypassing cache); **Find
@@ -206,16 +254,42 @@ To enable real search, pick **one** provider, get its API key, set
    badges so you can manually pick a different one; **Upload Image** lets you
    supply your own file when nothing found online is right.
 6. Back on the Job Detail page, **Generate PDFs** builds every category PDF
-   plus the master `Product_Image_Catalog.pdf`; **Generate ZIP** bundles the
-   full `Product_Catalog/` folder (images + PDFs) into `Product_Catalog.zip`.
-   Download links appear immediately after generation.
+   plus the master `Product_Image_Catalog.pdf` - a grid layout (multiple
+   products per page), grouped by category and sorted by Season within each
+   group, with each tile showing the photo, Style Code, and a Colour
+   swatch + label (no item name or source link on the tile itself); **Generate
+   ZIP** bundles the full `Product_Catalog/` folder (images + PDFs) into
+   `Product_Catalog.zip`. Both are always regenerated fresh from the job's
+   full current state, so re-running them after any day's search picks up
+   everything approved so far in one file - never a separate file per day.
+   Download links appear immediately after generation, plus a **Not Found
+   (.xlsx)** link once any items remain unresolved.
 
 ---
 
 ## 6. Testing performed
 
-**Automated (42 passing tests, `npm test -w server`):**
-- Quick Search (`imageSearch.test.ts`, 11 tests, added with this feature):
+**Automated (61 passing tests, `npm test -w server`):**
+- Daily-quota search + phase escalation (added with this feature):
+  - `quotaGovernor.test.ts` (6 tests, isolated temp SQLite DB): starts with
+    the full configured cap available; consuming decrements remaining
+    budget; the cap is enforced and never goes negative; a 24h-elapsed
+    window resets automatically and restores the full budget (the resume-
+    next-day path), while a window under 24h old does not reset.
+  - `phaseEngine.test.ts` (9 tests, pure functions, no DB): a new job targets
+    Phase 1 for every item; Phase 2 never starts until *every* item has
+    completed Phase 1 (and correctly identifies the still-incomplete item
+    when only some have); a resolved item is treated as fully done and never
+    re-queried, and doesn't block other items from advancing; a job
+    cascades straight to Phase 2 in the same run once Phase 1 finishes (not
+    waiting for a new day); Phase 3 likewise waits for every item to finish
+    Phase 2; a job is "done" once every item is resolved or has exhausted
+    Phase 3; an empty job is immediately done.
+  - `fileParser.test.ts` additions: Season column auto-detection (including
+    aliases like `Collection`/`Drop`), Season staying optional and never
+    affecting mapping confidence, and new Category alias variants (`Product
+    Group`, `Line`).
+- Quick Search (`imageSearch.test.ts`, 11 tests, added in an earlier session):
   query-variation generation and de-dupe; real width/height decoding from an
   in-memory `sharp`-generated image at both above- and below-threshold
   resolutions (`dimensionsFromBuffer`, no network needed); dominant-colour
@@ -302,6 +376,45 @@ To enable real search, pick **one** provider, get its API key, set
   exercised end-to-end; do one small real query after adding a key before
   relying on this in production.
 
+**Daily-quota search - manual/integration testing (this session):**
+- Full live flow via `curl` against a running dev server
+  (`SEARCH_PROVIDER=none`, no outbound access available in this sandbox -
+  see §7): uploaded a 3-row CSV with Style Code/Colour/Category/Season →
+  confirmed Season and the new Category alias variants auto-detect
+  correctly → confirmed import with `domainFilterMode=official_only` and an
+  `officialDomain` → verified the created job's `GET /api/jobs/:id` response
+  carries `domainFilterMode`, `officialDomain`, `quota` (cap/used/remaining/
+  resetsAt), and `phase` (current/done) correctly → exercised
+  `PATCH /api/jobs/:id/settings` (valid update, and the required-domain
+  validation) → manually approved all three products (via Upload Image,
+  since no provider is configured) → `POST /generate-pdfs` produced a 5-page
+  master PDF (cover + 2 category dividers + 2 grid pages, i.e. multiple
+  products correctly packed onto shared grid pages instead of one page per
+  product) → `GET /download/not-found.xlsx` for a manually-flipped
+  `not_found` row produced a real, valid `.xlsx` with the exact `Style
+  Code`/`Colour`/`Category`/`Season` headers and the row's data.
+- Found and fixed a real bug during this testing: pdfkit's `fill()` does
+  *not* throw on an unrecognized colour name (e.g. a compound name like "Dark
+  Olive Green") - it silently no-ops, which would have left the colour
+  swatch tinted with whatever fill colour was already active instead of
+  falling back cleanly. Fixed by checking pdfkit's own colour resolver
+  before filling and falling back to a neutral grey swatch when it returns
+  nothing recognizable; verified directly against the installed `pdfkit`
+  version.
+- **Not yet tested end-to-end: the actual daily-quota governor against a
+  real search-provider API.** No API key (Google Custom Search JSON API +
+  CSE ID, or another supported provider) and no broad outbound network
+  access were available in this sandbox, so `quotaGovernor`'s integration
+  with real provider HTTP calls - i.e. actually exhausting a live Google CSE
+  100-query/day quota over a real multi-day run and confirming the clean
+  stop/resume end-to-end - has never been exercised against the live
+  internet in any session. The governor's logic itself (window reset, cap
+  enforcement, resume behaviour) is unit-tested in isolation
+  (`quotaGovernor.test.ts`); what's unverified is the live wiring. **Add a
+  real provider key and run one small real search before relying on this in
+  production**, watching `GET /api/jobs/:id`'s `quota` field as it counts
+  down.
+
 ---
 
 ## 7. Known limitations / what still needs configuration
@@ -337,6 +450,42 @@ To enable real search, pick **one** provider, get its API key, set
   directly from the original source URL in the browser; some sites block
   hotlinking, in which case the thumbnail may not render even though the
   source link and evidence are still correct and Approve will still work.
+- **Daily-quota search decisions worth knowing about:**
+  - Phase 2 and Phase 3 attempts re-run from the same most-specific-first
+    query list rather than only the *new* variants, so a worst-case item
+    that's never found costs up to 1 + 2 + 4 = 7 provider queries total
+    across all three phases, not 4. This follows the brief's literal
+    per-phase wording ("Phase 2 ... retried with 2 query variants"); if your
+    quota is tighter than the 95/day default, this is the number to budget
+    against.
+  - The per-item quota check is conservative: it reserves the *worst-case*
+    query count for a phase (e.g. 2 for Phase 2) before starting an item,
+    even though a cache hit or an early "enough candidates" break can mean
+    it actually uses fewer. This can make a run stop for the day slightly
+    before the literal query cap is reached, in exchange for never starting
+    work it can't safely finish. Likewise, quota consumption counts every
+    real HTTP attempt including retries (`SEARCH_MAX_RETRIES`), which the
+    pre-check doesn't multiply in - the `DAILY_SEARCH_QUOTA=95` default
+    (vs. Google's real 100/day) exists specifically to leave headroom for
+    this.
+  - The existing `search_cache` table is keyed by styleCode+colour only (not
+    by domain-filter mode, unchanged from before this feature) - if you
+    change a job's source-domain restriction partway through, a
+    previously-cached `not_found` result computed under the old filter is
+    reused as-is rather than re-evaluated. Use "Search Again" on an
+    individual product (bypasses cache) if you need to force a re-check
+    after changing the filter.
+  - Category was already a required, existing column before this feature
+    (the brief described it as new); only Season was actually added.
+    Likewise there's a single `Colour` field (name only, e.g. "Black"), not
+    separate colour-code/colour-name fields - the PDF swatch is derived
+    directly from that name via pdfkit's own colour-name resolver, falling
+    back to a neutral grey for compound names it doesn't recognize (e.g.
+    "Dark Olive Green").
+  - Season sorting within a category group is a plain lexical string sort
+    (e.g. `AW24` before `SS24`), not a business-specific chronological
+    season calendar - swap in a real comparator if your season codes need
+    calendar ordering.
 
 ---
 
@@ -354,9 +503,11 @@ server/src/
     matching.ts / verification.ts / sourceTier.ts   evidence + scoring engine
     productSearch.ts       orchestrates search→fetch→score for one product
     searchCache.ts         styleCode+colour persistent cache
-    queue.ts / jobService.ts   concurrency-limited job runner
+    quotaGovernor.ts        persisted daily search-provider quota (24h window)
+    phaseEngine.ts          pure 3-phase escalation state machine
+    queue.ts / jobService.ts   phase-aware, quota-governed job runner
     imageStorage.ts        download/validate/convert/store images
-    pdfGenerator.ts         category + master PDF generation (pdfkit)
+    pdfGenerator.ts         grid-layout category + master PDF generation (pdfkit)
     zipGenerator.ts         ZIP bundling (archiver)
   routes/                 import, jobs, products, export, cache
   lib/                    sanitize.ts, validateUrl.ts (SSRF guard), ids.ts, httpFetch.ts
