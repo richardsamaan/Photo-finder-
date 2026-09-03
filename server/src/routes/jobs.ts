@@ -5,10 +5,7 @@ import { db } from "../db/client.js";
 import { jobs, categories } from "../db/schema.js";
 import { startJob, pauseJob, resumeJob, cancelJob, getRunnerState } from "../services/queue.js";
 import { getDashboardStats, listProducts, touchJob } from "../services/jobService.js";
-import { isSearchConfigured } from "../services/searchProviders/index.js";
-import { getQuotaStatus } from "../services/quotaGovernor.js";
-import { planNextPhase, type PhaseItem } from "../services/phaseEngine.js";
-import { env } from "../env.js";
+import { getSiteHealthSnapshot } from "../services/searchProviders/index.js";
 
 export const jobsRouter = Router();
 
@@ -22,19 +19,14 @@ jobsRouter.get("/:id", (req, res) => {
   if (!job) return res.status(404).json({ error: "Job not found." });
   const cats = db.select().from(categories).where(eq(categories.jobId, job.id)).all();
   const stats = getDashboardStats(job.id);
-  const productRows = listProducts(job.id);
-  const phase = planNextPhase(
-    productRows.map((p): PhaseItem => ({ id: p.id, status: p.status, searchPhase: p.searchPhase }))
-  );
   res.json({
     job,
     categories: cats.map((c) => c.name),
     stats,
     runnerState: getRunnerState(job.id),
-    searchConfigured: isSearchConfigured(),
-    activeProvider: env.SEARCH_PROVIDER,
-    quota: getQuotaStatus(),
-    phase: { current: phase.targetPhase, done: phase.done },
+    // Process-wide (not per-job) per-site success/failure counters, reset
+    // each time the server restarts - see services/searchProviders/health.ts.
+    siteHealth: getSiteHealthSnapshot(),
   });
 });
 
@@ -68,13 +60,6 @@ jobsRouter.post("/:id/start", async (req, res) => {
   const job = db.select().from(jobs).where(eq(jobs.id, req.params.id)).get();
   if (!job) return res.status(404).json({ error: "Job not found." });
 
-  if (!isSearchConfigured()) {
-    return res.status(412).json({
-      error: `Search provider "${env.SEARCH_PROVIDER}" is not configured. Set the required API key(s) in your .env file (see .env.example) before starting a search.`,
-      blocked: true,
-    });
-  }
-
   const productIds: string[] | undefined = Array.isArray(req.body?.productIds)
     ? req.body.productIds
     : undefined;
@@ -86,9 +71,6 @@ jobsRouter.post("/:id/start", async (req, res) => {
 jobsRouter.post("/:id/retry-failed", async (req, res) => {
   const job = db.select().from(jobs).where(eq(jobs.id, req.params.id)).get();
   if (!job) return res.status(404).json({ error: "Job not found." });
-  if (!isSearchConfigured()) {
-    return res.status(412).json({ error: "Search provider not configured.", blocked: true });
-  }
   await startJob(job.id, { retryFailedOnly: true });
   res.json({ ok: true });
 });

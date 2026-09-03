@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { quickImageSearch } from "../services/imageSearch.js";
-import { ProviderNotConfiguredError } from "../services/searchProviders/types.js";
 
 export const quickSearchRouter = Router();
 
@@ -26,9 +25,6 @@ quickSearchRouter.post("/", async (req, res) => {
     });
     res.json({ results });
   } catch (err) {
-    if (err instanceof ProviderNotConfiguredError) {
-      return res.status(400).json({ error: err.message });
-    }
     console.error(err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Search failed." });
   }

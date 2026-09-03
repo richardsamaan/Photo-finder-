@@ -20,7 +20,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; searchProvider: string; searchConfigured: boolean }>("/api/health"),
+  health: () => request<{ ok: boolean; sites: string[] }>("/api/health"),
 
   uploadImport: (file: File) => {
     const fd = new FormData();
@@ -146,22 +146,17 @@ export interface Job {
   concurrency: number;
   domainFilterMode: DomainFilterMode;
   officialDomain: string | null;
-  pauseReason: "user" | "quota_reached" | null;
+  pauseReason: "user" | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface QuotaStatus {
-  cap: number;
-  used: number;
-  remaining: number;
-  windowStart: string;
-  resetsAt: string;
-}
-
-export interface PhaseStatus {
-  current: 1 | 2 | 3 | null;
-  done: boolean;
+export interface SiteHealthEntry {
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  resultsReturned: number;
+  lastError?: string;
 }
 
 export interface DashboardStats {
@@ -182,10 +177,7 @@ export interface JobDetailResponse {
   categories: string[];
   stats: DashboardStats;
   runnerState: string;
-  searchConfigured: boolean;
-  activeProvider: string;
-  quota: QuotaStatus;
-  phase: PhaseStatus;
+  siteHealth: Record<string, SiteHealthEntry>;
 }
 
 export interface Product {

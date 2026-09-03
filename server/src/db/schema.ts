@@ -28,8 +28,10 @@ export const jobs = sqliteTable("jobs", {
     .notNull()
     .default("none"),
   officialDomain: text("official_domain"), // e.g. "hugoboss.com" - required when domainFilterMode != "none"
-  // Set when a running job stops itself rather than being paused by a user.
-  pauseReason: text("pause_reason", { enum: ["user", "quota_reached"] }),
+  // Set when the job is paused - currently always "user" (a manual pause);
+  // kept as its own field/enum in case a future automatic-pause reason is
+  // added, but there is no quota or other cost-driven reason to pause today.
+  pauseReason: text("pause_reason", { enum: ["user"] }),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
 });
@@ -57,8 +59,9 @@ export const products = sqliteTable(
     colour: text("colour").notNull(),
     category: text("category").notNull(),
     season: text("season"),
-    // Highest escalating search phase this product has completed (0 = not yet
-    // attempted). See services/phaseEngine.ts for the phase state machine.
+    // Which escalating search attempt (1 = Style Code, 2 = +Colour, 3 =
+    // +Category) produced this product's current result - purely
+    // informational, see services/productSearch.ts.
     searchPhase: integer("search_phase").notNull().default(0),
     status: text("status", {
       enum: [
@@ -197,11 +200,3 @@ export const searchCache = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
   }
 );
-
-// Single-row (id: "singleton") persisted counter for the rolling 24h
-// search-provider quota window - see services/quotaGovernor.ts.
-export const searchQuota = sqliteTable("search_quota", {
-  id: text("id").primaryKey(),
-  windowStart: text("window_start").notNull(),
-  count: integer("count").notNull().default(0),
-});

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { products, searchResults, images } from "../db/schema.js";
+import { products, searchResults, images, jobs } from "../db/schema.js";
 import { newId } from "../lib/ids.js";
 import { uploadImage } from "../middleware/upload.js";
 import { searchAndVerifyProduct } from "../services/productSearch.js";
@@ -13,8 +13,7 @@ import {
   resolveStoragePath,
 } from "../services/imageStorage.js";
 import { classifyConfidence } from "../services/verification.js";
-import { isSearchConfigured } from "../services/searchProviders/index.js";
-import { env } from "../env.js";
+import type { DomainFilterMode } from "../services/sourceTier.js";
 
 export const productsRouter = Router();
 
@@ -43,12 +42,8 @@ productsRouter.get("/:id", (req, res) => {
 productsRouter.post("/:id/search-again", async (req, res) => {
   const product = getProductOr404(req, res);
   if (!product) return;
-  if (!isSearchConfigured()) {
-    return res.status(412).json({
-      error: `Search provider "${env.SEARCH_PROVIDER}" is not configured.`,
-      blocked: true,
-    });
-  }
+
+  const job = db.select().from(jobs).where(eq(jobs.id, product.jobId)).get();
 
   db.update(products)
     .set({ status: "searching", updatedAt: new Date().toISOString() })
@@ -58,7 +53,11 @@ productsRouter.post("/:id/search-again", async (req, res) => {
   try {
     const outcome = await searchAndVerifyProduct(
       { id: product.id, styleCode: product.styleCode, colour: product.colour, category: product.category },
-      { useCache: false }
+      {
+        useCache: false,
+        domainFilterMode: (job?.domainFilterMode ?? "none") as DomainFilterMode,
+        officialDomain: job?.officialDomain ?? null,
+      }
     );
     if (product.localImagePath) {
       deleteStoredImage(resolveStoragePath(product.localImagePath));
@@ -72,6 +71,7 @@ productsRouter.post("/:id/search-again", async (req, res) => {
         sourceName: outcome.sourceName,
         verificationNotes: JSON.stringify(outcome.candidates[0]?.evidence ?? []),
         errorMessage: null,
+        searchPhase: outcome.attemptsUsed,
         localImagePath: null,
         filename: null,
         manuallyUploaded: false,

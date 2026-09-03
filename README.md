@@ -1,14 +1,16 @@
 # Product Image Finder & Catalog Generator
 
 A production web app that takes an uploaded product list (Style Code, Colour,
-Category), searches the real internet for each exact product, verifies the
-match with evidence (not visual guessing), lets a human review/approve every
-image, then generates category-organized image folders, per-category PDFs, a
-master catalog PDF, and a downloadable ZIP.
+Category, optional Season), searches for each exact product by directly
+querying retailers' own on-site search (no third-party search API, no API
+key, no billing risk anywhere in the pipeline), verifies the match with
+evidence (not visual guessing), lets a human review/approve every image, then
+generates a category-organized, grid-layout PDF catalog and a downloadable
+ZIP.
 
-**No fake data. No simulated search.** When no search-provider API key is
-configured, the app tells you so explicitly and blocks the search step
-instead of inventing results.
+**No fake data. No simulated search.** A site adapter that fails or looks
+blocked is skipped for that item and recorded in per-site health tracking -
+it never falls back to inventing a result.
 
 For a one-off lookup that doesn't need the full CSV import → review → PDF
 flow, there's also a **Quick Search** tool - see §1a.
@@ -26,69 +28,99 @@ production (Express static, since `vite build` copies `public/` into `dist/`).
 - **Fields**: item name/description (required), an optional colour name
   (e.g. "burgundy"), and an optional colour hex code (e.g. `#7B1E3A`, with a
   colour-picker synced to the text field).
-- **Search depth**: instead of one query, `queryBuilder.buildQuickSearchQueries`
-  generates several variations (raw query, `+ "product photo"`,
+- **Search**: runs on the same 9 direct on-site search adapters as the main
+  catalog pipeline (`services/searchProviders/sites/`) - there is no separate
+  general-web-search or dedicated image-search API. `queryBuilder.buildQuickSearchQueries`
+  generates several phrasing variations (raw query, `+ "product photo"`,
   `+ "high resolution"`, `+ "official product image"`, `+ "studio photo white
-  background"`, plus colour-qualified passes when a colour name is given) and
-  the results are pooled together (deduped by image URL, target ~40
-  candidates) rather than stopping at the first query's results.
+  background"`, plus colour-qualified passes when a colour name is given);
+  each candidate product page found is then actually fetched
+  (`fetchProductPage`, the same function the catalog pipeline uses) to
+  resolve its real product image.
 - **Quality filtering**: known stock-photo domains (iStock, Shutterstock,
   Getty, Alamy, etc.) and URLs containing "watermark" are dropped. Every
-  remaining candidate's real pixel dimensions are used (from the provider's
-  image-search API when available - Google CSE `searchType=image` / Bing
-  Image Search v7, both return width/height directly - otherwise probed via
-  a bounded, concurrency-limited HTTP fetch + `sharp` metadata read) and
-  anything under 800px on its shortest side is rejected.
+  remaining candidate's real pixel dimensions are probed (bounded,
+  concurrency-limited HTTP fetch + `sharp` metadata read) and anything under
+  800px on its shortest side is rejected.
 - **Ranking**: survivors are sorted by resolution (bigger wins); when a
   colour hex is supplied, each candidate's dominant colour is sampled
   (`sharp().resize(1,1)`) and compared to the target via RGB Euclidean
   distance, which nudges closer colour matches upward without ever zeroing
   out an otherwise strong, high-resolution photo. The top 8-10 are returned.
 - **Backend**: `POST /api/quick-search` (`server/src/routes/quickSearch.ts` →
-  `server/src/services/imageSearch.ts`), reusing the existing
-  `SearchProvider` adapters and the same "provider not configured" error
-  path as the main pipeline - never fabricated results.
+  `server/src/services/imageSearch.ts`).
 
 ---
 
-## 1b. Multi-day search with a daily quota (large imports)
+## 1b. Direct on-site search (no API key, no quota)
 
-For a product list too large to search in one day against a free-tier
-provider quota (e.g. Google CSE's 100 queries/day), **Start Search** now
-runs the whole job through an escalating, quota-governed strategy instead of
-firing every query for every product up front:
+Search works by directly querying each of **9 target retailers'** own
+on-site search - no Google/Bing/Firecrawl/SerpAPI, no API key, and no
+external quota anywhere in the pipeline:
 
-- **Daily quota governor** (`services/quotaGovernor.ts`): a persisted SQLite
-  counter tracks provider queries in a rolling 24h window, capped by
-  `DAILY_SEARCH_QUOTA` (default 95, see §4). The moment a run would exceed
-  the remaining budget it stops cleanly - no error, the in-progress item
-  queue is left untouched - and the Job Detail page shows **"Daily search
-  quota reached - resume tomorrow"**. Clicking **Resume** later (once the
-  window has rolled over) continues exactly where it left off, and the
-  existing styleCode+colour cache means nothing already found is ever
-  re-queried.
-- **Three-phase escalation** (`services/phaseEngine.ts`): every product
-  first gets exactly **1** query (Phase 1). Only once *every* product in the
-  job has had its Phase 1 attempt does Phase 2 begin, retrying items still
-  `not_found` with **2** query variants; likewise Phase 3 (up to **4**
-  variants, matching the original single-pass behaviour) only starts once
-  every item has finished Phase 2. The runner always works the earliest
-  incomplete phase across the whole job, and if a phase finishes with quota
-  still available it falls straight through to the next phase in the same
-  run rather than waiting for a new day.
+```
+hugoboss.com   farfetch.com   mrporter.com   selfridges.com  bloomingdales.com
+zalando.com    endclothing.com   nordstrom.com   macys.com
+```
+
+- **Per-site adapters** (`services/searchProviders/sites/`): each retailer
+  gets a `SearchProvider`-conforming adapter (the same interface the app's
+  original API-key-based providers used - only the data source changed) built
+  via a shared factory (`createSiteAdapter.ts`) so the fetch/retry/bot-check
+  plumbing is written once. Each adapter builds that site's own search URL,
+  fetches the results page, and extracts candidate product-page links
+  (`extractProductCandidates.ts` - a generic, domain-scoped anchor-tag parser,
+  not brittle per-site CSS classes). Every candidate then goes through the
+  **same, unchanged verification/matching engine** (`verification.ts`,
+  `matching.ts`) regardless of which of the 9 sites it came from.
+- **Image extraction** (`services/pageFetcher.ts`): once a candidate product
+  page is fetched, the primary image is resolved through a priority chain -
+  `og:image` first, then schema.org JSON-LD `Product.image`, then a handful
+  of common product-gallery selectors, then any image on the page - so the
+  best available guess is always used even when `og:image` is missing or
+  wrong.
+- **Escalating attempts, re-anchored to accuracy, not cost**
+  (`services/queryBuilder.ts` → `buildEscalatingQueries`,
+  `services/productSearch.ts`): since there's no external quota to conserve
+  anymore, an item's attempts run back-to-back in one call, stopping as soon
+  as a confident match is found:
+  1. Style Code alone, across all 9 sites.
+  2. Style Code + Colour Name, only if attempt 1 wasn't confident.
+  3. Style Code + Colour Name + Category, only if attempt 2 wasn't confident.
+- **Politeness, not quota** (`services/searchProviders/politeness.ts`): a
+  configurable minimum delay (`SITE_SEARCH_DELAY_MS`, default 1500ms) between
+  two requests to the *same* retailer - tracked per domain, so a run against
+  all 9 sites doesn't needlessly serialize across different retailers. A full
+  run processes the whole item list in one pass, bounded only by this delay
+  and normal runtime; **Pause/Resume** stays available for practical reasons
+  (long runtimes, wanting to check progress), not because of any quota.
+- **Per-site health tracking** (`services/searchProviders/health.ts`): simple
+  in-process success/failure counters per site (shown on the Job Detail
+  page) - "succeeded" means the fetch+parse completed normally (a legitimate
+  zero-results page still counts as healthy), "failed" means a network
+  error, non-2xx response, or a detected bot-check/CAPTCHA wall
+  (`botCheck.ts`). A failing site is simply skipped for that item, never a
+  hard pipeline failure.
 - **Optional source-domain filter**: each job can restrict search results to
   the official brand domain only, the official domain plus a curated
-  allowlist of major retailers (`services/sourceTier.ts`), or no
-  restriction (the original behaviour) - set at import time or later from
-  the Job Detail page.
-- Regenerating the PDFs/ZIP after any day's run always reflects the job's
-  full current state (every approved product so far) - there's no
-  per-day partial export to merge by hand. A **Not Found (.xlsx)** download
-  on the Job Detail page lists everything still unresolved, in the same
-  column format as the input, purely for visibility.
-- "Search Selected" and "Retry Failed" bypass the phase governor and quota
-  gate entirely (same as before this feature) since they're an explicit,
-  one-off request for specific items right now.
+  allowlist of major retailers (`services/sourceTier.ts`), or no restriction
+  - set at import time or later from the Job Detail page.
+- Regenerating the PDFs/ZIP always reflects the job's full current state
+  (every approved product so far) - there's no per-run partial export to
+  merge by hand. A **Not Found (.xlsx)** download on the Job Detail page
+  lists everything still unresolved, in the same column format as the input.
+- "Search Selected" and "Retry Failed" run the same escalating pipeline for
+  just the items you pick, on demand.
+
+> **This sandbox has no outbound internet access** (documented in every
+> session on this project - only the npm registry is reachable through its
+> proxy), so **none of the 9 adapters' URL patterns or extraction heuristics
+> could be verified against the live, current sites.** They were built
+> against general, best-effort knowledge of each retailer's typical
+> commerce-platform conventions - see `sites/configs.ts` for exactly which
+> parts are unverified, and run `npm run smoke:sites -w server -- <styleCode>
+> [colour] [category]` (from a machine with real internet access) before
+> trusting this in production. See §6 for what *was* verified automatically.
 
 ---
 
@@ -109,34 +141,33 @@ Photo-finder-/
   (Dashboard, Import Wizard, Job Detail/Review Grid, Product Review).
   Mobile-first responsive layout, tested at 412×915 (Galaxy S24 Ultra),
   820×1180 (tablet), and 1440×900 (desktop).
-- **Search provider**: a `SearchProvider` interface
-  (`server/src/services/searchProviders/types.ts`) with four adapters -
-  Google Custom Search JSON API, Firecrawl, SerpAPI, Bing Web Search - all
-  implementing the same `search(query)` contract. Swapping providers is a
-  one-line env var change (`SEARCH_PROVIDER`); adding a new one means
-  implementing the interface and registering it in `searchProviders/index.ts`.
-  No provider is hard-selected in code.
+- **Search**: a `SearchProvider` interface
+  (`server/src/services/searchProviders/types.ts`) with 9 direct-site
+  adapters (see §1b) fanned out per query by `runSiteSearch`
+  (`searchProviders/index.ts`). Adding a 10th retailer means adding one
+  config entry to `sites/configs.ts` - no new interface, no API key.
 
 ---
 
-## 2. How the matching/verification logic works (Phases 3-5)
+## 2. How the matching/verification logic works
 
-1. **Query generation** (`services/queryBuilder.ts`): for each product, up to
-   6 queries are generated, most-specific first (e.g. `"50512345" "Black"`,
-   `50512345 Black`, `"50512345" product`, `50512345 T-Shirt`, `50512345`).
-2. **Search**: each query is run through the active provider with a shared
-   rate limiter and retry-with-backoff (`searchProviders/index.ts`).
-   Duplicate URLs across queries are de-duplicated.
+1. **Query generation** (`services/queryBuilder.ts`): 3 escalating attempts
+   per product, most-specific-needed first (Style Code; +Colour; +Category -
+   see §1b). Each site's own search engine tokenizes the plain-text query the
+   same way a shopper typing into its search box would.
+2. **Search**: each attempt is fanned out to every enabled site adapter in
+   parallel, with a per-site politeness delay (`searchProviders/index.ts`).
+   Duplicate URLs across sites are de-duplicated.
 3. **Page verification** (`services/pageFetcher.ts` + `robotsCheck.ts`): for
-   each candidate URL (top 8), the app checks `robots.txt` before fetching.
-   If the active provider offers a scrape API (Firecrawl), that's used;
-   otherwise a direct HTTP GET + HTML text/meta/image extraction
-   (`cheerio`) is done. Disallowed pages are never fetched - they're scored
-   from the search snippet only.
-4. **Evidence scoring** (`services/verification.ts` + `matching.ts`): the
-   style code is checked as a real token match (word-boundary and
-   separator-tolerant, e.g. `5051-2345` still matches `50512345`) - **never**
-   a substring match that could hit inside an unrelated longer number.
+   each candidate URL (top 8), the app checks `robots.txt` before fetching,
+   then does a direct HTTP GET + HTML text/meta/image extraction (`cheerio`).
+   Disallowed pages are never fetched - they're scored from the listing title
+   only.
+4. **Evidence scoring** (`services/verification.ts` + `matching.ts`,
+   unchanged by the search-backend pivot): the style code is checked as a
+   real token match (word-boundary and separator-tolerant, e.g. `5051-2345`
+   still matches `50512345`) - **never** a substring match that could hit
+   inside an unrelated longer number.
    - No style-code match → confidence hard-capped at 15 (`NEEDS REVIEW`,
      never higher, regardless of how good everything else looks).
    - Style-code match but a *different* colour explicitly stated on the page
@@ -148,13 +179,14 @@ Photo-finder-/
 5. **Ranking** (`rankCandidates`): style-code match is the primary sort key
    - a candidate without a code match can never outrank one with a match,
    no matter its raw score. This directly implements the "style code beats
-   visual similarity" requirement.
+   visual similarity" requirement, and applies identically no matter which
+   of the 9 sites a candidate came from.
 6. Nothing is ever auto-approved. The best candidate becomes the product's
    suggested image/status; a human must explicitly Approve, Reject, pick a
    different candidate, or upload their own image before it's downloaded.
 
 Unit tests for all of this logic live in `server/src/services/*.test.ts` and
-`server/src/lib/*.test.ts` (31 tests, see §6).
+`server/src/lib/*.test.ts` (see §6).
 
 ---
 
@@ -169,7 +201,7 @@ Unit tests for all of this logic live in `server/src/services/*.test.ts` and
 ```bash
 git clone <this-repo>
 cd Photo-finder-
-cp .env.example .env      # then edit .env - see §4
+cp .env.example .env      # then edit .env - see §4 (optional, sane defaults ship)
 npm install --workspaces  # installs server + web deps
 npm run db:push           # creates the SQLite DB and tables
 ```
@@ -198,7 +230,8 @@ In production the Express server also serves the built frontend from
 
 ## 4. Environment variables (`.env`)
 
-Copy `.env.example` to `.env`. Full reference:
+Copy `.env.example` to `.env`. Search itself needs no configuration at all -
+every variable below is an optional tuning knob:
 
 | Variable | Required | Description |
 |---|---|---|
@@ -206,24 +239,11 @@ Copy `.env.example` to `.env`. Full reference:
 | `DATABASE_PATH` | no | SQLite file path (relative to repo root) |
 | `STORAGE_DIR` | no | Where uploads/images/PDFs/ZIPs are written |
 | `CORS_ORIGIN` | no | Allowed frontend origin |
-| `SEARCH_PROVIDER` | **yes, for real search** | `google_cse` \| `firecrawl` \| `serpapi` \| `bing` \| `none` |
-| `GOOGLE_API_KEY` / `GOOGLE_CSE_ID` | if using `google_cse` | [Google Programmable Search](https://developers.google.com/custom-search/v1/overview) - free tier: 100 queries/day |
-| `FIRECRAWL_API_KEY` | if using `firecrawl` | [firecrawl.dev](https://www.firecrawl.dev/) - search **and** page-scrape in one provider (recommended: best verification quality since it can read full page content, not just snippets) |
-| `SERPAPI_API_KEY` | if using `serpapi` | [serpapi.com](https://serpapi.com/) |
-| `BING_API_KEY` | if using `bing` | Azure Cognitive Services Bing Web Search |
 | `SEARCH_CONCURRENCY` | no (default 3) | Parallel products processed at once |
-| `SEARCH_RATE_LIMIT_MS` | no (default 600) | Minimum gap between provider HTTP calls |
-| `SEARCH_MAX_RETRIES` | no (default 2) | Retries per query on provider error |
+| `SITE_SEARCH_DELAY_MS` | no (default 1500) | Minimum gap between two requests to the *same* retailer site (politeness, not cost) |
+| `SITE_SEARCH_MAX_RETRIES` | no (default 1) | Retries per site fetch on a network error |
+| `FETCH_TIMEOUT_MS` | no (default 12000) | Timeout for any single outbound HTTP request |
 | `MAX_UPLOAD_MB` / `MAX_IMAGE_MB` | no | Upload size limits |
-| `DAILY_SEARCH_QUOTA` | no (default 95) | Real provider queries allowed per rolling 24h window (Google CSE free tier: 100/day - default leaves headroom for retries) |
-
-**With `SEARCH_PROVIDER=none` (the default), the app runs fully and
-honestly - import, review UI, manual image upload, PDF/ZIP export all work -
-but clicking "Start Search" returns a clear
-"Search provider not configured" message instead of any result.**
-
-To enable real search, pick **one** provider, get its API key, set
-`SEARCH_PROVIDER` and the matching key(s) above.
 
 ---
 
@@ -239,12 +259,12 @@ To enable real search, pick **one** provider, get its API key, set
    restriction** (none / official domain only / official + trusted
    retailers) - see §1b.
 3. **Confirm Import** (or Cancel) - creates the job and every product row.
-4. On the **Job Detail** page: **Start Search** (requires a configured
-   provider) runs the quota-governed, phase-escalating search across the
-   whole job (see §1b), or **Pause / Resume / Cancel / Retry Failed / Search
-   Selected** while it runs. Live stats (Total, Images Found, High/Medium
-   Confidence, Needs Review, Not Found, Approved, Rejected, Failed, Pending),
-   the current search phase, remaining daily quota, and a progress bar update
+4. On the **Job Detail** page: **Start Search** runs the escalating search
+   across the whole job (Style Code → +Colour → +Category per item, across
+   all 9 sites - see §1b), or **Pause / Resume / Cancel / Retry Failed /
+   Search Selected** while it runs. Live stats (Total, Images Found,
+   High/Medium Confidence, Needs Review, Not Found, Approved, Rejected,
+   Failed, Pending), per-site health, and a progress bar update
    automatically. The source-domain restriction can also be changed here at
    any time.
 5. Open any product to **Review**: see the image, evidence notes, confidence,
@@ -260,8 +280,8 @@ To enable real search, pick **one** provider, get its API key, set
    swatch + label (no item name or source link on the tile itself); **Generate
    ZIP** bundles the full `Product_Catalog/` folder (images + PDFs) into
    `Product_Catalog.zip`. Both are always regenerated fresh from the job's
-   full current state, so re-running them after any day's search picks up
-   everything approved so far in one file - never a separate file per day.
+   full current state, so re-running them after any run picks up everything
+   approved so far in one file - never a separate file per run.
    Download links appear immediately after generation, plus a **Not Found
    (.xlsx)** link once any items remain unresolved.
 
@@ -269,165 +289,104 @@ To enable real search, pick **one** provider, get its API key, set
 
 ## 6. Testing performed
 
-**Automated (61 passing tests, `npm test -w server`):**
-- Daily-quota search + phase escalation (added with this feature):
-  - `quotaGovernor.test.ts` (6 tests, isolated temp SQLite DB): starts with
-    the full configured cap available; consuming decrements remaining
-    budget; the cap is enforced and never goes negative; a 24h-elapsed
-    window resets automatically and restores the full budget (the resume-
-    next-day path), while a window under 24h old does not reset.
-  - `phaseEngine.test.ts` (9 tests, pure functions, no DB): a new job targets
-    Phase 1 for every item; Phase 2 never starts until *every* item has
-    completed Phase 1 (and correctly identifies the still-incomplete item
-    when only some have); a resolved item is treated as fully done and never
-    re-queried, and doesn't block other items from advancing; a job
-    cascades straight to Phase 2 in the same run once Phase 1 finishes (not
-    waiting for a new day); Phase 3 likewise waits for every item to finish
-    Phase 2; a job is "done" once every item is resolved or has exhausted
-    Phase 3; an empty job is immediately done.
-  - `fileParser.test.ts` additions: Season column auto-detection (including
-    aliases like `Collection`/`Drop`), Season staying optional and never
-    affecting mapping confidence, and new Category alias variants (`Product
-    Group`, `Line`).
-- Quick Search (`imageSearch.test.ts`, 11 tests, added in an earlier session):
-  query-variation generation and de-dupe; real width/height decoding from an
-  in-memory `sharp`-generated image at both above- and below-threshold
-  resolutions (`dimensionsFromBuffer`, no network needed); dominant-colour
-  extraction recovers a solid fill's RGB value within a few units
-  (`dominantColourFromBuffer`); hex parsing accepts `#RRGGBB`/`RRGGBB` and
-  rejects malformed input; RGB distance is 0 for identical colours and grows
-  with difference; stock-photo domains and watermark URLs are flagged;
-  ranking prefers higher resolution, boosts closer colour matches without
-  ever zeroing out a far match, and lets a big high-quality photo outrank a
-  small perfectly-colour-matched one.
-- Style-code matching: exact tokens, separator-tolerant matches (`5051-2345`
-  vs `50512345`), and rejection of substrings inside unrelated longer numbers.
-- Colour matching + spelling synonyms (grey/gray) + conflicting-colour
-  detection.
-- Category matching with plural/synonym tolerance.
-- Full confidence-scoring engine: exact match → high confidence; wrong style
-  code → hard-capped low regardless of everything else; right code + wrong
-  stated colour → strongly penalized; ranking always prefers a style-code
-  match over a higher-scoring non-match.
-- Filename sanitization (`STYLECODE-COLOUR.jpg`, special-character and
-  path-traversal stripping).
-- Column auto-detection across header aliases (`SKU`, `Color`, `Product
-  Type`, etc.) and correct "not confident" fallback.
-- SSRF protection: rejects localhost/loopback/RFC1918/link-local URLs and
-  non-http(s) schemes before any download is attempted.
-- Real image pipeline: `persistImageBuffer` writes an actual JPEG to
-  `Product_Catalog/<Category>/STYLECODE-COLOUR.jpg`, round-tripped through
-  `sharp` to confirm it decodes correctly.
+**Automated (93 passing tests, `npm test -w server`):**
+- Direct-site-search adapters (added with this pivot), all using **saved,
+  hand-built HTML fixtures - no live network calls in the test suite**:
+  - `extractProductCandidates.test.ts` (8 tests): real product tiles are
+    extracted and nav/account/footer/cross-domain chrome is ignored; relative
+    hrefs resolve against the search page URL; title falls back
+    aria-label → image alt → link text; `maxCandidates` and a per-site
+    `productUrlPattern` override both work; repeated links de-dupe; a
+    legitimate zero-results page returns `[]`.
+  - `createSiteAdapter.test.ts` (7 tests, mocked global `fetch`): correctly
+    parses an SFCC-style results page (hugoboss.com-like), a Magento-style
+    results page (endclothing.com-like), and a JSON-LD-carrying results page
+    (department-store-like); a zero-results page is not an error; a
+    bot-check/CAPTCHA response and a non-OK HTTP status both throw (after
+    retrying) rather than fabricating a result.
+  - `botCheck.test.ts` (5 tests): flags 403/429/503 and common CAPTCHA/block
+    page text; does not flag an ordinary 200 response or a legitimate
+    "no results found" page.
+  - `configs.test.ts` (4 tests): all 9 target domains are present; every
+    config builds an `https://` URL on its own domain; queries are
+    URL-encoded; the query appears in some query-string parameter.
+  - `politeness.test.ts` (3 tests): a domain's first request isn't delayed;
+    a second request to the *same* domain waits out the configured delay;
+    a *different* domain is never held up by another site's timer.
+  - `searchProviders/index.test.ts` (7 tests, fake in-test adapters): fans a
+    query out to every adapter and aggregates results; a failing adapter is
+    skipped, not fatal; success/failure/result-count are recorded correctly
+    per site (including that a legitimate zero-results adapter still counts
+    as a success); all three domain-filter modes work.
+  - `queryBuilder.test.ts` (5 tests): the 3 escalating attempts build
+    correctly, Category is only appended when present, a blank Colour
+    collapses attempts 1 and 2, and whitespace is normalized.
+  - `pageFetcher.test.ts` (8 tests, mocked global `fetch`): the
+    og:image → JSON-LD `Product.image` (string, array, or `ImageObject`) →
+    gallery-selector → any-`<img>` priority chain resolves correctly at each
+    fallback level; malformed JSON-LD doesn't break the fetch; a non-HTML
+    response returns `null`.
+  - `fileParser.test.ts` additions (carried over): Season column
+    auto-detection (including aliases like `Collection`/`Drop`), Season
+    staying optional and never affecting mapping confidence, and Category
+    alias variants (`Product Group`, `Line`).
+- Quick Search (`imageSearch.test.ts`, 11 tests): query-variation generation
+  and de-dupe; real width/height decoding from an in-memory `sharp`-generated
+  image; dominant-colour extraction; hex parsing; RGB distance; stock-photo
+  domain/watermark flagging; resolution + colour-match ranking.
+- Style-code/colour/category matching, the full confidence-scoring engine,
+  filename sanitization, column auto-detection, SSRF protection, and the
+  real (sharp round-tripped) image-persistence pipeline - all unchanged by
+  this pivot, still passing.
 
-**Manual/integration (performed live against the running app this session):**
-- Uploaded a real 5-product CSV (T-Shirt/Shirt/Trousers/Jacket categories) →
-  column auto-detection → live preview → confirm → job + 4 categories + 5
-  products created correctly.
-- Verified `POST /jobs/:id/start` is correctly blocked with a clear error
-  when no search provider is configured (this sandbox has no API key and no
-  outbound access to arbitrary internet hosts - see §7).
-- Manually uploaded a real image per product (via the actual Upload Image
-  endpoint/UI) → confirmed `STYLECODE-COLOUR.jpg` filenames, correct
-  `Product_Catalog/<Category>/` folder placement, dashboard stats updated.
-- Generated real PDFs and a real ZIP via the live API and downloaded them:
-  master PDF (10 pages: cover + 4 category dividers + 5 product pages),
-  T-Shirt category PDF (3 pages), ZIP with the exact
-  `Product_Catalog/<Category>/{images, Category.pdf}` +
-  `Product_Catalog/Product_Image_Catalog.pdf` structure - verified with
-  `unzip -l` and `file`.
-- Browser testing (Playwright + the pre-installed Chromium) at desktop
-  (1440×900), Galaxy S24 Ultra (412×915), and tablet (820×1180) viewports:
-  Dashboard, Import Wizard (full upload → map → preview → confirm flow
-  driven end-to-end), Job Detail (stats grid, filters, controls,
-  enabled/disabled button states verified programmatically), Product Review
-  (approve/reject/upload flow driven end-to-end, status updates live),
-  and the candidate-comparison "Find Another Image" screen (seeded
-  representative candidates to confirm the exact-match-vs-similar-looking
-  UI renders evidence badges and confidence correctly).
-- Bug found and fixed during this testing: PDF cover-page generation crashed
-  on `autoFirstPage:false` documents; product image path had a duplicated
-  `catalog/` segment; picking a new candidate or re-searching didn't
-  invalidate a previously-approved local image. All three fixed and
-  re-verified live.
-
-**Quick Search - manual/integration testing (this session):**
-- `npm run dev` (both API and Vite dev server) → `curl` against
-  `POST /api/quick-search`: confirmed `query is required.` (400) on an empty
-  body, `colourHex must be a hex code like #1A1A1A.` (400) on a malformed
-  hex, and - with `SEARCH_PROVIDER=none` (no key available in this sandbox;
-  same documented network constraint as §7) - the same honest `Search
-  provider "none" is not configured...` (400) as the main pipeline, proving
-  it never falls back to fake results.
-- Confirmed `/quick-search.html` is served both by the Vite dev server (from
-  `web/public/`) and, after `vite build`, from the built `web/dist/` output
-  that Express serves in production.
-- Playwright screenshots (pre-installed Chromium) against the live dev
-  server: the form (item name, colour name, colour hex + synced colour
-  picker) renders and accepts input; submitting with no provider configured
-  shows the red error banner inline instead of silently failing; with
-  `page.route` mocking `POST /api/quick-search` to return three ranked
-  candidates, the results grid renders correctly - rank badges, resolution
-  ("900 × 1200px"), source domain, and a working "Source ↗" link per card.
-  Also confirmed the new "Quick Search" navbar link renders correctly on the
-  main app's Dashboard without disrupting the existing layout.
-- A real internet search-provider API key and broad outbound access were not
-  available in this sandbox (same limitation as §7), so the actual provider
-  HTTP calls (Google CSE image search, Bing Image Search) could not be
-  exercised end-to-end; do one small real query after adding a key before
-  relying on this in production.
-
-**Daily-quota search - manual/integration testing (this session):**
-- Full live flow via `curl` against a running dev server
-  (`SEARCH_PROVIDER=none`, no outbound access available in this sandbox -
-  see §7): uploaded a 3-row CSV with Style Code/Colour/Category/Season →
-  confirmed Season and the new Category alias variants auto-detect
-  correctly → confirmed import with `domainFilterMode=official_only` and an
-  `officialDomain` → verified the created job's `GET /api/jobs/:id` response
-  carries `domainFilterMode`, `officialDomain`, `quota` (cap/used/remaining/
-  resetsAt), and `phase` (current/done) correctly → exercised
-  `PATCH /api/jobs/:id/settings` (valid update, and the required-domain
-  validation) → manually approved all three products (via Upload Image,
-  since no provider is configured) → `POST /generate-pdfs` produced a 5-page
-  master PDF (cover + 2 category dividers + 2 grid pages, i.e. multiple
-  products correctly packed onto shared grid pages instead of one page per
-  product) → `GET /download/not-found.xlsx` for a manually-flipped
-  `not_found` row produced a real, valid `.xlsx` with the exact `Style
-  Code`/`Colour`/`Category`/`Season` headers and the row's data.
-- Found and fixed a real bug during this testing: pdfkit's `fill()` does
-  *not* throw on an unrecognized colour name (e.g. a compound name like "Dark
-  Olive Green") - it silently no-ops, which would have left the colour
-  swatch tinted with whatever fill colour was already active instead of
-  falling back cleanly. Fixed by checking pdfkit's own colour resolver
-  before filling and falling back to a neutral grey swatch when it returns
-  nothing recognizable; verified directly against the installed `pdfkit`
-  version.
-- **Not yet tested end-to-end: the actual daily-quota governor against a
-  real search-provider API.** No API key (Google Custom Search JSON API +
-  CSE ID, or another supported provider) and no broad outbound network
-  access were available in this sandbox, so `quotaGovernor`'s integration
-  with real provider HTTP calls - i.e. actually exhausting a live Google CSE
-  100-query/day quota over a real multi-day run and confirming the clean
-  stop/resume end-to-end - has never been exercised against the live
-  internet in any session. The governor's logic itself (window reset, cap
-  enforcement, resume behaviour) is unit-tested in isolation
-  (`quotaGovernor.test.ts`); what's unverified is the live wiring. **Add a
-  real provider key and run one small real search before relying on this in
-  production**, watching `GET /api/jobs/:id`'s `quota` field as it counts
-  down.
+**Manual/integration testing (this session, against a running dev server):**
+- The generic extraction and page-fetch logic was exercised end-to-end via
+  the automated fixture-based tests above (there is no live network access
+  in this sandbox to test against further).
+- Verified `createSiteAdapter`'s retry-then-throw behavior directly against
+  the real, installed `pdfkit`/`cheerio` versions (not just types).
+- Ran `npm run smoke:sites -w server -- 50512345 Black "T-Shirt"` end-to-end
+  in this sandbox to confirm the script itself (imports, escalating-query
+  preview, per-site fan-out, health-aware error handling) runs correctly
+  top-to-bottom; every site correctly reported "no candidates" rather than
+  crashing, since this sandbox cannot actually reach any of the 9 sites.
+- Previously verified in earlier sessions (unaffected by this pivot):
+  full import → mapping → confirm flow; manual image upload → approve →
+  PDF/ZIP generation (grid layout, category grouping, Season sort verified
+  separately when that feature was added); Playwright coverage of Dashboard,
+  Import Wizard, Job Detail, Product Review, and the candidate-comparison
+  screen at desktop/tablet/mobile viewports.
+- **Not yet tested end-to-end: any of the 9 site adapters against the real,
+  live internet.** This sandbox has no outbound internet access (documented
+  since the very first session on this project - only the npm registry is
+  reachable through its proxy), so none of `sites/configs.ts`'s URL patterns
+  or the shared extraction/image-fallback heuristics could be verified
+  against the actual current markup of hugoboss.com, farfetch.com,
+  mrporter.com, selfridges.com, bloomingdales.com, zalando.com,
+  endclothing.com, nordstrom.com, or macys.com. **Run
+  `npm run smoke:sites -w server -- <styleCode> [colour] [category]`
+  from a machine with real internet access before trusting this in
+  production** - it prints, per site, how many candidates were found and
+  whether a product image was resolved from the first one, so you can
+  compare directly against what you see visiting each site yourself.
 
 ---
 
-## 7. Known limitations / what still needs configuration
+## 7. Known limitations / what still needs verification
 
-- **A live search-provider API key is required for Phase 3-5 (actual
-  internet search) to run.** None is configured out of the box - see §4.
-  This sandbox environment also has no outbound network access to arbitrary
-  internet hosts (only the npm registry is reachable through its proxy), so
-  the provider adapters' live HTTP calls could not be exercised end-to-end
-  in this session. Their request/response handling was written against each
-  provider's documented API shape and is otherwise fully wired in; you
-  should do one small real search (5-10 products) after adding a key, per
-  the Stop Conditions in the original brief, before running a large import.
+- **Every one of the 9 site adapters' URL patterns and HTML-extraction
+  heuristics is unverified against the live internet** (see §1b/§6) - this
+  is the single biggest thing to check before relying on this in production.
+  Expect some adapters to need their `buildSearchUrl` or
+  `productUrlPattern` adjusted once run against the real sites; the
+  per-site health panel on the Job Detail page and the smoke-test script
+  exist specifically to make that easy to spot.
+- Direct site search means an honest bot user-agent
+  (`ProductImageFinderBot/1.0`, see `lib/httpFetch.ts`) is sent on every
+  request - by design, this project does not spoof a browser user-agent to
+  evade detection. Some retailers may rate-limit or block a declared bot
+  more readily than they would a browser; that shows up as a "failed" site
+  in health tracking, not a pipeline crash.
 - `xlsx` (SheetJS) has two known npm-registry advisories (prototype
   pollution / ReDoS) with no npm-published fix at the time of writing; the
   maintainers publish patched builds outside npm. Risk is limited here
@@ -440,52 +399,45 @@ To enable real search, pick **one** provider, get its API key, set
   retailers plus simple heuristics - it does not know your specific brands.
   Extend `RELIABLE_RETAILERS` with your own retailers/brand domains for
   better source-tier scoring.
-- Job pause/resume/cancel state lives in-process (a `Map` of running jobs).
-  If the server process restarts mid-job, in-flight progress already written
-  to the database is preserved, but you'll need to click Start again (it
-  will pick up only unprocessed products, not re-process approved ones).
+- Job pause/resume/cancel state lives in-process (a `Map` of running jobs),
+  and per-site health counters (§1b) are also in-process/not persisted -
+  both reset on a server restart. If the server restarts mid-job, in-flight
+  progress already written to the database is preserved, but you'll need to
+  click Start again (it will pick up only unprocessed products, not
+  re-process approved ones).
 - No authentication/multi-user separation - this is a single-operator tool
   as scoped. Add an auth layer before exposing it beyond a trusted network.
 - Candidate/product image `<img>` previews for un-downloaded candidates load
   directly from the original source URL in the browser; some sites block
   hotlinking, in which case the thumbnail may not render even though the
   source link and evidence are still correct and Approve will still work.
-- **Daily-quota search decisions worth knowing about:**
-  - Phase 2 and Phase 3 attempts re-run from the same most-specific-first
-    query list rather than only the *new* variants, so a worst-case item
-    that's never found costs up to 1 + 2 + 4 = 7 provider queries total
-    across all three phases, not 4. This follows the brief's literal
-    per-phase wording ("Phase 2 ... retried with 2 query variants"); if your
-    quota is tighter than the 95/day default, this is the number to budget
-    against.
-  - The per-item quota check is conservative: it reserves the *worst-case*
-    query count for a phase (e.g. 2 for Phase 2) before starting an item,
-    even though a cache hit or an early "enough candidates" break can mean
-    it actually uses fewer. This can make a run stop for the day slightly
-    before the literal query cap is reached, in exchange for never starting
-    work it can't safely finish. Likewise, quota consumption counts every
-    real HTTP attempt including retries (`SEARCH_MAX_RETRIES`), which the
-    pre-check doesn't multiply in - the `DAILY_SEARCH_QUOTA=95` default
-    (vs. Google's real 100/day) exists specifically to leave headroom for
-    this.
-  - The existing `search_cache` table is keyed by styleCode+colour only (not
-    by domain-filter mode, unchanged from before this feature) - if you
-    change a job's source-domain restriction partway through, a
-    previously-cached `not_found` result computed under the old filter is
-    reused as-is rather than re-evaluated. Use "Search Again" on an
-    individual product (bypasses cache) if you need to force a re-check
-    after changing the filter.
-  - Category was already a required, existing column before this feature
-    (the brief described it as new); only Season was actually added.
-    Likewise there's a single `Colour` field (name only, e.g. "Black"), not
-    separate colour-code/colour-name fields - the PDF swatch is derived
-    directly from that name via pdfkit's own colour-name resolver, falling
-    back to a neutral grey for compound names it doesn't recognize (e.g.
-    "Dark Olive Green").
+- **Other decisions worth knowing about:**
+  - Category was already a required, existing column before Season was
+    added in an earlier session; only Season is actually new. Likewise
+    there's a single `Colour` field (name only, e.g. "Black"), not separate
+    colour-code/colour-name fields - the PDF swatch is derived directly from
+    that name via pdfkit's own colour-name resolver (checked explicitly,
+    since pdfkit silently no-ops rather than throwing on a name it doesn't
+    recognize - see the `drawColourSwatch` comment in `pdfGenerator.ts`),
+    falling back to a neutral grey for compound names it doesn't recognize
+    (e.g. "Dark Olive Green").
   - Season sorting within a category group is a plain lexical string sort
     (e.g. `AW24` before `SS24`), not a business-specific chronological
     season calendar - swap in a real comparator if your season codes need
     calendar ordering.
+  - The `search_cache` table is keyed by styleCode+colour only (not by
+    domain-filter mode) - if you change a job's source-domain restriction
+    partway through, a previously-cached `not_found` result computed under
+    the old filter is reused as-is. Use "Search Again" on an individual
+    product (bypasses cache) if you need to force a re-check after changing
+    the filter.
+  - `products.search_phase` is now purely informational (which escalating
+    attempt - 1, 2, or 3 - produced the current result); there is no more
+    job-wide phase barrier. Earlier in this project a daily API quota made
+    it worthwhile to finish every item's easy attempt before spending budget
+    on anyone's hard attempt; direct site search has no such quota, so each
+    item now just escalates through its own attempts independently and as
+    fast as the politeness delay allows.
 
 ---
 
@@ -497,20 +449,31 @@ server/src/
   services/
     fileParser.ts        XLSX/CSV parsing + column auto-detection
     pendingImports.ts     temp-storage for the upload→mapping→confirm flow
-    queryBuilder.ts        multi-query generation per product
-    searchProviders/       pluggable provider interface + 4 adapters
-    robotsCheck.ts / pageFetcher.ts   robots.txt-respecting page fetch
-    matching.ts / verification.ts / sourceTier.ts   evidence + scoring engine
-    productSearch.ts       orchestrates search→fetch→score for one product
+    queryBuilder.ts        escalating-attempt query generation per product
+    searchProviders/
+      types.ts              SearchProvider interface (reused by every adapter)
+      createSiteAdapter.ts   shared fetch/retry/bot-check adapter factory
+      extractProductCandidates.ts   generic search-results-page link parser
+      botCheck.ts            bot-check/CAPTCHA response detection
+      politeness.ts          per-domain minimum request delay
+      health.ts               per-site success/failure tracking
+      index.ts                runSiteSearch: fans a query out to every adapter
+      sites/
+        configs.ts             the 9 target retailers' search URL builders
+        index.ts                builds + exports the 9 SearchProvider adapters
+        fixtures/               hand-built sample HTML used by the tests
+    robotsCheck.ts / pageFetcher.ts   robots.txt-respecting page fetch + image extraction
+    matching.ts / verification.ts / sourceTier.ts   evidence + scoring engine (unchanged)
+    productSearch.ts       orchestrates the 3-attempt escalating search for one product
     searchCache.ts         styleCode+colour persistent cache
-    quotaGovernor.ts        persisted daily search-provider quota (24h window)
-    phaseEngine.ts          pure 3-phase escalation state machine
-    queue.ts / jobService.ts   phase-aware, quota-governed job runner
+    queue.ts / jobService.ts   job runner (pause/resume/cancel, no phase/quota governor)
     imageStorage.ts        download/validate/convert/store images
     pdfGenerator.ts         grid-layout category + master PDF generation (pdfkit)
     zipGenerator.ts         ZIP bundling (archiver)
-  routes/                 import, jobs, products, export, cache
+  routes/                 import, jobs, products, export, cache, quickSearch
   lib/                    sanitize.ts, validateUrl.ts (SSRF guard), ids.ts, httpFetch.ts
+  scripts/
+    smokeTestSites.ts       manual, live smoke test for the 9 site adapters (not run by CI)
 web/src/
   pages/                  Dashboard, ImportWizard, JobDetail, ProductReview
   components/             ProductCard, StatCard, ProgressBar, StatusBadge, Navbar

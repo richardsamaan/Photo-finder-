@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, ApiError, type Product, type DomainFilterMode } from "../api/client";
+import { api, ApiError, type Product, type DomainFilterMode, type SiteHealthEntry } from "../api/client";
 import { useJobPolling } from "../hooks/useJobPolling";
 import { StatCard } from "../components/StatCard";
 import { ProgressBar } from "../components/ProgressBar";
@@ -77,7 +77,7 @@ export function JobDetail() {
   if (error) return <div className="card p-4 text-red-600 text-sm">{error}</div>;
   if (!data) return <div className="text-slate-500 text-sm">Loading…</div>;
 
-  const { job, stats, categories, searchConfigured, activeProvider, runnerState, quota, phase } = data;
+  const { job, stats, categories, runnerState, siteHealth } = data;
   const isRunning = job.status === "running" || runnerState === "running";
   const isPaused = job.status === "paused" || runnerState === "paused";
 
@@ -86,41 +86,14 @@ export function JobDetail() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{job.filename}</h1>
-          <p className="text-sm text-slate-500">
-            Job status: {job.status}
-            {!phase.done && phase.current && ` · Search phase ${phase.current} of 3`}
-          </p>
+          <p className="text-sm text-slate-500">Job status: {job.status}</p>
         </div>
-      </div>
-
-      {!searchConfigured && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
-          <strong>Search provider not configured</strong> (active provider: <code>{activeProvider}</code>). Set the
-          required API key(s) in your <code>.env</code> file (see <code>.env.example</code>) to enable real web
-          search. Until then, products can still be reviewed manually via image upload.
-        </div>
-      )}
-
-      {job.pauseReason === "quota_reached" && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
-          <strong>Daily search quota reached — resume tomorrow.</strong> {quota.used}/{quota.cap} provider queries
-          used in the current 24h window (resets {new Date(quota.resetsAt).toLocaleString()}). Everything already
-          found is safely cached — clicking Resume later will continue exactly where this run left off.
-        </div>
-      )}
-
-      <div className="text-xs text-slate-500">
-        Search quota: {quota.used}/{quota.cap} used today · {quota.remaining} remaining
       </div>
 
       <ProgressBar value={job.processedProducts} max={job.totalProducts} />
 
       <div className="flex flex-wrap gap-2">
-        <button
-          className="btn-primary"
-          disabled={busy || isRunning || !searchConfigured}
-          onClick={() => runAction(() => api.startJob(job.id))}
-        >
+        <button className="btn-primary" disabled={busy || isRunning} onClick={() => runAction(() => api.startJob(job.id))}>
           ▶ Start Search
         </button>
         <button className="btn-secondary" disabled={busy || !isRunning} onClick={() => runAction(() => api.pauseJob(job.id))}>
@@ -136,16 +109,12 @@ export function JobDetail() {
         >
           ✕ Cancel
         </button>
-        <button
-          className="btn-secondary"
-          disabled={busy || isRunning || !searchConfigured}
-          onClick={() => runAction(() => api.retryFailed(job.id))}
-        >
+        <button className="btn-secondary" disabled={busy || isRunning} onClick={() => runAction(() => api.retryFailed(job.id))}>
           ↻ Retry Failed
         </button>
         <button
           className="btn-secondary"
-          disabled={busy || isRunning || selected.size === 0 || !searchConfigured}
+          disabled={busy || isRunning || selected.size === 0}
           onClick={() => runAction(() => api.startJob(job.id, Array.from(selected)))}
         >
           Search Selected ({selected.size})
@@ -173,6 +142,8 @@ export function JobDetail() {
         officialDomain={job.officialDomain}
         onUpdated={refresh}
       />
+
+      <SiteHealthPanel siteHealth={siteHealth} />
 
       <ExportPanel jobId={job.id} approvedCount={stats.approved} categories={categories} notFoundCount={stats.notFound} />
 
@@ -297,6 +268,54 @@ function DomainFilterSettings({
         </button>
       )}
       {err && <div className="text-sm text-red-600">{err}</div>}
+    </div>
+  );
+}
+
+/**
+ * Per-site success/failure counters (searchProviders/health.ts) - process-wide
+ * (not scoped to this one job), reset when the server restarts. Lets an
+ * operator spot at a glance whether a specific retailer's adapter is
+ * currently being blocked/rate-limited without treating it as a hard
+ * pipeline failure - a failing site is simply skipped per item.
+ */
+function SiteHealthPanel({ siteHealth }: { siteHealth: Record<string, SiteHealthEntry> }) {
+  const entries = Object.entries(siteHealth).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return (
+      <div className="card p-4 text-sm text-slate-500">
+        Site health: no searches run yet this server session.
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-4 flex flex-col gap-2">
+      <h2 className="font-semibold text-slate-900 text-sm">Site Health (this server session)</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {entries.map(([site, h]) => {
+          const healthy = h.attempts === 0 || h.failed / h.attempts < 0.5;
+          return (
+            <div
+              key={site}
+              className={`rounded-lg border px-3 py-2 text-xs ${
+                healthy ? "border-slate-200 bg-white" : "border-red-200 bg-red-50"
+              }`}
+            >
+              <div className="font-medium text-slate-700">{site}</div>
+              <div className={healthy ? "text-slate-500" : "text-red-700"}>
+                {h.succeeded}/{h.attempts} succeeded · {h.resultsReturned} result(s) returned
+                {h.failed > 0 && !healthy && " · check this adapter"}
+              </div>
+              {h.lastError && !healthy && (
+                <div className="text-red-500 truncate" title={h.lastError}>
+                  {h.lastError}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

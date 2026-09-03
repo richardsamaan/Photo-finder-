@@ -1,7 +1,8 @@
-// Common contract every search-provider adapter must implement.
-// Swapping providers = implementing this interface + registering it in index.ts.
-// No adapter may invent or fabricate results - if the underlying API returns
-// nothing, the adapter must return an empty array, never synthesized data.
+// Common contract every site-search adapter implements. Swapping/adding a
+// retailer = implementing this interface + registering it in sites/index.ts.
+// No adapter may invent or fabricate results - if a site's search page
+// yields nothing (or looks blocked), the adapter returns an empty array or
+// throws, it never synthesizes data.
 
 export interface RawSearchResult {
   url: string;
@@ -13,21 +14,7 @@ export interface RawSearchResult {
 
 export interface SearchProvider {
   readonly name: string;
-  /** True only when this adapter has the credentials it needs to run. */
   isConfigured(): boolean;
-  /** Run one text query against the provider. Must not throw for "no results". */
+  /** Run one text query against this site's own on-site search. Throws on a fetch/parse failure or a detected bot-check; returns [] for a legitimate no-results page. */
   search(query: string): Promise<RawSearchResult[]>;
-  /**
-   * Optional: fetch page content for verification (style code / colour / category
-   * evidence extraction). Providers that only do search (no scrape) should omit this
-   * and let the generic pageFetcher.ts handle it via direct HTTP fetch.
-   */
-  fetchPageContent?(url: string): Promise<{ text: string; images: string[] } | null>;
-}
-
-export class ProviderNotConfiguredError extends Error {
-  constructor(provider: string) {
-    super(`Search provider "${provider}" is not configured. Set the required API key env vars.`);
-    this.name = "ProviderNotConfiguredError";
-  }
 }
