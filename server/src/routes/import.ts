@@ -32,6 +32,7 @@ importRouter.post("/upload", uploadSpreadsheet.single("file"), (req, res) => {
     styleCode: mapping.styleCode ? row[mapping.styleCode] : "",
     colour: mapping.colour ? row[mapping.colour] : "",
     category: mapping.category ? row[mapping.category] : "",
+    season: mapping.season ? row[mapping.season] : "",
   }));
 
   const categoriesGuess = mapping.category
@@ -53,6 +54,12 @@ const mappingSchema = z.object({
   styleCode: z.string().min(1),
   colour: z.string().min(1),
   category: z.string().min(1),
+  season: z.string().optional(), // optional column - "" or omitted means "not mapped"
+});
+
+const confirmSchema = mappingSchema.extend({
+  domainFilterMode: z.enum(["none", "official_only", "official_plus_allowlist"]).optional(),
+  officialDomain: z.string().trim().max(253).optional(),
 });
 
 importRouter.post("/:token/preview", (req, res) => {
@@ -63,7 +70,7 @@ importRouter.post("/:token/preview", (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Invalid column mapping." });
   const mapping = parsed.data;
 
-  for (const col of [mapping.styleCode, mapping.colour, mapping.category]) {
+  for (const col of [mapping.styleCode, mapping.colour, mapping.category, ...(mapping.season ? [mapping.season] : [])]) {
     if (!pending.headers.includes(col)) {
       return res.status(400).json({ error: `Column "${col}" not found in file headers.` });
     }
@@ -73,6 +80,7 @@ importRouter.post("/:token/preview", (req, res) => {
     styleCode: row[mapping.styleCode],
     colour: row[mapping.colour],
     category: row[mapping.category],
+    season: mapping.season ? row[mapping.season] : "",
   }));
   const validRows = pending.rows.filter(
     (r) => r[mapping.styleCode]?.trim() && r[mapping.colour]?.trim() && r[mapping.category]?.trim()
@@ -94,11 +102,17 @@ importRouter.post("/:token/confirm", (req, res) => {
   const pending = readPendingImport(req.params.token);
   if (!pending) return res.status(404).json({ error: "Import session not found or expired." });
 
-  const parsed = mappingSchema.safeParse(req.body);
+  const parsed = confirmSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Invalid column mapping." });
   const mapping = parsed.data;
+  const domainFilterMode = mapping.domainFilterMode ?? "none";
+  const officialDomain = mapping.officialDomain?.trim() || null;
 
-  for (const col of [mapping.styleCode, mapping.colour, mapping.category]) {
+  if (domainFilterMode !== "none" && !officialDomain) {
+    return res.status(400).json({ error: "An official domain is required for this source-domain filter mode." });
+  }
+
+  for (const col of [mapping.styleCode, mapping.colour, mapping.category, ...(mapping.season ? [mapping.season] : [])]) {
     if (!pending.headers.includes(col)) {
       return res.status(400).json({ error: `Column "${col}" not found in file headers.` });
     }
@@ -123,6 +137,8 @@ importRouter.post("/:token/confirm", (req, res) => {
       columnMapping: JSON.stringify(mapping),
       totalProducts: validRows.length,
       processedProducts: 0,
+      domainFilterMode,
+      officialDomain,
       createdAt: now,
       updatedAt: now,
     })
@@ -148,6 +164,7 @@ importRouter.post("/:token/confirm", (req, res) => {
           styleCode: row[mapping.styleCode].trim(),
           colour: row[mapping.colour].trim(),
           category: row[mapping.category].trim(),
+          season: mapping.season ? row[mapping.season]?.trim() || null : null,
           status: "pending",
         })
         .run();

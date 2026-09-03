@@ -5,6 +5,7 @@ import { serpApiProvider } from "./serpApi.js";
 import { bingProvider } from "./bing.js";
 import type { RawSearchResult, SearchProvider } from "./types.js";
 import { ProviderNotConfiguredError } from "./types.js";
+import { consumeQuota } from "../quotaGovernor.js";
 
 const registry: Record<string, SearchProvider> = {
   google_cse: googleCseProvider,
@@ -49,6 +50,9 @@ export async function runSearch(
   for (let attempt = 0; attempt <= env.SEARCH_MAX_RETRIES; attempt++) {
     try {
       await throttle();
+      // Counts every real HTTP call to the provider (including retries) against
+      // the shared daily quota - see services/quotaGovernor.ts.
+      consumeQuota(1);
       const results = await provider.search(query);
       return { provider: provider.name, results };
     } catch (err) {

@@ -47,6 +47,10 @@ export const env = {
   SEARCH_CONCURRENCY: num("SEARCH_CONCURRENCY", 3),
   SEARCH_RATE_LIMIT_MS: num("SEARCH_RATE_LIMIT_MS", 600), // min gap between provider requests
   SEARCH_MAX_RETRIES: num("SEARCH_MAX_RETRIES", 2),
+  // Free-tier providers (e.g. Google Programmable Search) cap real queries per
+  // 24h window (Google CSE: 100/day). Default leaves headroom under that cap
+  // for the odd retried request - see services/quotaGovernor.ts.
+  DAILY_SEARCH_QUOTA: num("DAILY_SEARCH_QUOTA", 95),
   FETCH_TIMEOUT_MS: num("FETCH_TIMEOUT_MS", 12000),
   MAX_UPLOAD_MB: num("MAX_UPLOAD_MB", 20),
   MAX_IMAGE_MB: num("MAX_IMAGE_MB", 15),

@@ -1,10 +1,13 @@
 import { Router } from "express";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { jobs, categories } from "../db/schema.js";
 import { startJob, pauseJob, resumeJob, cancelJob, getRunnerState } from "../services/queue.js";
-import { getDashboardStats, listProducts } from "../services/jobService.js";
+import { getDashboardStats, listProducts, touchJob } from "../services/jobService.js";
 import { isSearchConfigured } from "../services/searchProviders/index.js";
+import { getQuotaStatus } from "../services/quotaGovernor.js";
+import { planNextPhase, type PhaseItem } from "../services/phaseEngine.js";
 import { env } from "../env.js";
 
 export const jobsRouter = Router();
@@ -19,6 +22,10 @@ jobsRouter.get("/:id", (req, res) => {
   if (!job) return res.status(404).json({ error: "Job not found." });
   const cats = db.select().from(categories).where(eq(categories.jobId, job.id)).all();
   const stats = getDashboardStats(job.id);
+  const productRows = listProducts(job.id);
+  const phase = planNextPhase(
+    productRows.map((p): PhaseItem => ({ id: p.id, status: p.status, searchPhase: p.searchPhase }))
+  );
   res.json({
     job,
     categories: cats.map((c) => c.name),
@@ -26,7 +33,35 @@ jobsRouter.get("/:id", (req, res) => {
     runnerState: getRunnerState(job.id),
     searchConfigured: isSearchConfigured(),
     activeProvider: env.SEARCH_PROVIDER,
+    quota: getQuotaStatus(),
+    phase: { current: phase.targetPhase, done: phase.done },
   });
+});
+
+const jobSettingsSchema = z.object({
+  domainFilterMode: z.enum(["none", "official_only", "official_plus_allowlist"]).optional(),
+  officialDomain: z.string().trim().max(253).optional().nullable(),
+});
+
+jobsRouter.patch("/:id/settings", (req, res) => {
+  const job = db.select().from(jobs).where(eq(jobs.id, req.params.id)).get();
+  if (!job) return res.status(404).json({ error: "Job not found." });
+
+  const parsed = jobSettingsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid job settings." });
+
+  const nextMode = parsed.data.domainFilterMode ?? job.domainFilterMode;
+  const nextDomain = parsed.data.officialDomain !== undefined ? parsed.data.officialDomain : job.officialDomain;
+  if (nextMode !== "none" && !nextDomain?.trim()) {
+    return res.status(400).json({ error: "An official domain is required for this filter mode." });
+  }
+
+  touchJob(job.id, {
+    domainFilterMode: nextMode,
+    officialDomain: nextDomain?.trim() || null,
+  });
+  const updated = db.select().from(jobs).where(eq(jobs.id, job.id)).get();
+  res.json({ job: updated });
 });
 
 jobsRouter.post("/:id/start", async (req, res) => {

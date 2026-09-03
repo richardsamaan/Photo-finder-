@@ -8,6 +8,7 @@ import { fetchProductPage } from "./pageFetcher.js";
 import { scoreCandidate, rankCandidates, classifyConfidence, type CandidateScore } from "./verification.js";
 import { getCachedResult, upsertCacheResult } from "./searchCache.js";
 import { ProviderNotConfiguredError } from "./searchProviders/types.js";
+import { isDomainAllowed, type DomainFilterMode } from "./sourceTier.js";
 
 const MAX_CANDIDATES_TO_VERIFY = 8;
 const MAX_QUERIES_PER_PRODUCT = 4;
@@ -43,9 +44,17 @@ function recordSource(domain: string, tier: string) {
  * search_results + search_history rows and returns the ranked outcome. Does
  * NOT mutate the product's own row - callers decide what to write back.
  */
+export interface SearchOptions {
+  useCache?: boolean;
+  /** Number of query variants to try, most-specific first (default 4). */
+  maxQueries?: number;
+  domainFilterMode?: DomainFilterMode;
+  officialDomain?: string | null;
+}
+
 export async function searchAndVerifyProduct(
   product: ProductRow,
-  opts: { useCache?: boolean } = {}
+  opts: SearchOptions = {}
 ): Promise<SearchOutcome> {
   if (opts.useCache !== false) {
     const cached = getCachedResult(product.styleCode, product.colour);
@@ -66,9 +75,10 @@ export async function searchAndVerifyProduct(
     throw new ProviderNotConfiguredError(process.env.SEARCH_PROVIDER ?? "none");
   }
 
-  const queries = buildQueries(product).slice(0, MAX_QUERIES_PER_PRODUCT);
+  const maxQueries = opts.maxQueries ?? MAX_QUERIES_PER_PRODUCT;
+  const queries = buildQueries(product).slice(0, maxQueries);
   const seenUrls = new Set<string>();
-  const rawResults: { url: string; title: string; snippet: string; domain: string; imageUrl?: string }[] = [];
+  let rawResults: { url: string; title: string; snippet: string; domain: string; imageUrl?: string }[] = [];
 
   for (const query of queries) {
     const { provider, results, error } = await runSearch(query);
@@ -90,6 +100,11 @@ export async function searchAndVerifyProduct(
       rawResults.push(r);
     }
     if (rawResults.length >= MAX_CANDIDATES_TO_VERIFY * 2) break;
+  }
+
+  const domainFilterMode = opts.domainFilterMode ?? "none";
+  if (domainFilterMode !== "none") {
+    rawResults = rawResults.filter((r) => isDomainAllowed(r.domain, domainFilterMode, opts.officialDomain));
   }
 
   if (rawResults.length === 0) {

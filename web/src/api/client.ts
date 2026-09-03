@@ -32,10 +32,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(mapping),
     }),
-  confirmImport: (token: string, mapping: ColumnMappingInput) =>
+  confirmImport: (token: string, input: ImportConfirmInput) =>
     request<ImportConfirmResponse>(`/api/import/${token}/confirm`, {
       method: "POST",
-      body: JSON.stringify(mapping),
+      body: JSON.stringify(input),
     }),
   cancelImport: (token: string) => request<{ ok: boolean }>(`/api/import/${token}/cancel`, { method: "POST" }),
 
@@ -85,30 +85,43 @@ export const api = {
     }),
   generateZip: (jobId: string) => request<{ ok: boolean }>(`/api/export/${jobId}/generate-zip`, { method: "POST" }),
 
+  updateJobSettings: (jobId: string, settings: JobSettingsInput) =>
+    request<{ job: Job }>(`/api/jobs/${jobId}/settings`, { method: "PATCH", body: JSON.stringify(settings) }),
+
   cacheEntries: () => request<{ entries: CacheEntry[]; total: number }>("/api/cache"),
   clearCache: () => request<{ ok: boolean }>("/api/cache", { method: "DELETE" }),
 };
 
 // --- Types shared with the backend shape ---
 
+export type DomainFilterMode = "none" | "official_only" | "official_plus_allowlist";
+
 export interface ColumnMappingInput {
   styleCode: string;
   colour: string;
   category: string;
+  season?: string;
 }
+
+export interface JobSettingsInput {
+  domainFilterMode?: DomainFilterMode;
+  officialDomain?: string | null;
+}
+
+export interface ImportConfirmInput extends ColumnMappingInput, JobSettingsInput {}
 
 export interface ImportUploadResponse {
   token: string;
   filename: string;
   headers: string[];
   totalRows: number;
-  mapping: ColumnMappingInput & { confident: boolean };
-  preview: { styleCode: string; colour: string; category: string }[];
+  mapping: ColumnMappingInput & { season: string | null; confident: boolean };
+  preview: { styleCode: string; colour: string; category: string; season: string }[];
   detectedCategories: string[];
 }
 
 export interface ImportPreviewResponse {
-  preview: { styleCode: string; colour: string; category: string }[];
+  preview: { styleCode: string; colour: string; category: string; season: string }[];
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -131,8 +144,24 @@ export interface Job {
   totalProducts: number;
   processedProducts: number;
   concurrency: number;
+  domainFilterMode: DomainFilterMode;
+  officialDomain: string | null;
+  pauseReason: "user" | "quota_reached" | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface QuotaStatus {
+  cap: number;
+  used: number;
+  remaining: number;
+  windowStart: string;
+  resetsAt: string;
+}
+
+export interface PhaseStatus {
+  current: 1 | 2 | 3 | null;
+  done: boolean;
 }
 
 export interface DashboardStats {
@@ -155,6 +184,8 @@ export interface JobDetailResponse {
   runnerState: string;
   searchConfigured: boolean;
   activeProvider: string;
+  quota: QuotaStatus;
+  phase: PhaseStatus;
 }
 
 export interface Product {
@@ -164,6 +195,8 @@ export interface Product {
   styleCode: string;
   colour: string;
   category: string;
+  season: string | null;
+  searchPhase: number;
   status: string;
   confidence: number;
   imageUrl: string | null;
