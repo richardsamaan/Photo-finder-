@@ -83,8 +83,8 @@ test("domainFilterMode: official_plus_allowlist also allows a curated retailer",
   const official = fakeAdapter("hugoboss.com", async () => [
     { url: "https://hugoboss.com/1", title: "", snippet: "", domain: "hugoboss.com" },
   ]);
-  const allowlisted = fakeAdapter("nordstrom.com", async () => [
-    { url: "https://nordstrom.com/1", title: "", snippet: "", domain: "nordstrom.com" },
+  const allowlisted = fakeAdapter("endclothing.com", async () => [
+    { url: "https://endclothing.com/1", title: "", snippet: "", domain: "endclothing.com" },
   ]);
   const excluded = fakeAdapter("random-boutique.com", async () => [
     { url: "https://random-boutique.com/1", title: "", snippet: "", domain: "random-boutique.com" },
@@ -97,7 +97,7 @@ test("domainFilterMode: official_plus_allowlist also allows a curated retailer",
   });
 
   const domains = results.map((r) => r.domain).sort();
-  assert.deepEqual(domains, ["hugoboss.com", "nordstrom.com"]);
+  assert.deepEqual(domains, ["endclothing.com", "hugoboss.com"]);
 });
 
 test("domainFilterMode: none searches every adapter", async () => {

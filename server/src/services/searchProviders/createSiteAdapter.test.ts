@@ -54,8 +54,8 @@ test("search() extracts product candidates from a Magento-style results page (en
 test("search() extracts a product link from a JSON-LD-carrying results page (department-store-like)", async () => {
   mockFetchOnce(200, readFixture("jsonLdSearchResults.html"));
   const adapter = createSiteAdapter({
-    domain: "nordstrom.com",
-    buildSearchUrl: (q) => `https://www.nordstrom.com/sr?keyword=${encodeURIComponent(q)}`,
+    domain: "selfridges.com",
+    buildSearchUrl: (q) => `https://www.selfridges.com/US/en/search/?q=${encodeURIComponent(q)}`,
   });
 
   const results = await adapter.search("50567890");

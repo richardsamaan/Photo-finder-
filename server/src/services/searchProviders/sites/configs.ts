@@ -1,9 +1,18 @@
 import type { SiteAdapterConfig } from "../createSiteAdapter.js";
 
 // Best-effort on-site search URL patterns and product-URL hints for each of
-// the 9 target retailers, based on general knowledge of their commerce
+// the 5 target retailers, based on general knowledge of their commerce
 // platforms' typical conventions (SFCC "/search?q=", Magento
-// "/catalogsearch/result/?q=", Nordstrom's "/sr?keyword=", etc).
+// "/catalogsearch/result/?q=", etc).
+//
+// Trimmed from an initial 9 down to these 5: nordstrom.com, macys.com,
+// bloomingdales.com, and zalando.com were dropped - they're large,
+// high-traffic retailers that commonly run heavier bot-protection
+// (Akamai/Cloudflare-style), making reliable scraping less likely to
+// succeed and more effort to maintain. The 5 kept here are the official
+// brand site plus smaller-to-mid retailers more likely to be
+// scraping-tolerant, keeping this simpler and more reliable while it's
+// still unverified against live sites.
 //
 // IMPORTANT: this sandbox has no outbound internet access (documented
 // constraint in every session on this project), so NONE of these URL
@@ -29,23 +38,7 @@ export const SITE_CONFIGS: SiteAdapterConfig[] = [
     buildSearchUrl: (q) => `https://www.selfridges.com/US/en/search/?q=${encodeURIComponent(q)}`,
   },
   {
-    domain: "bloomingdales.com",
-    buildSearchUrl: (q) => `https://www.bloomingdales.com/shop/search?keyword=${encodeURIComponent(q)}`,
-  },
-  {
-    domain: "zalando.com",
-    buildSearchUrl: (q) => `https://www.zalando.com/catalog/?q=${encodeURIComponent(q)}`,
-  },
-  {
     domain: "endclothing.com",
     buildSearchUrl: (q) => `https://www.endclothing.com/us/catalogsearch/result/?q=${encodeURIComponent(q)}`,
-  },
-  {
-    domain: "nordstrom.com",
-    buildSearchUrl: (q) => `https://www.nordstrom.com/sr?keyword=${encodeURIComponent(q)}`,
-  },
-  {
-    domain: "macys.com",
-    buildSearchUrl: (q) => `https://www.macys.com/shop/search?keyword=${encodeURIComponent(q)}`,
   },
 ];

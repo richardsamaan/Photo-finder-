@@ -54,14 +54,22 @@ production (Express static, since `vite build` copies `public/` into `dist/`).
 
 ## 1b. Direct on-site search (no API key, no quota)
 
-Search works by directly querying each of **9 target retailers'** own
+Search works by directly querying each of **5 target retailers'** own
 on-site search - no Google/Bing/Firecrawl/SerpAPI, no API key, and no
 external quota anywhere in the pipeline:
 
 ```
-hugoboss.com   farfetch.com   mrporter.com   selfridges.com  bloomingdales.com
-zalando.com    endclothing.com   nordstrom.com   macys.com
+hugoboss.com   farfetch.com   mrporter.com   selfridges.com   endclothing.com
 ```
+
+Trimmed down from an initial 9: `nordstrom.com`, `macys.com`,
+`bloomingdales.com`, and `zalando.com` were dropped - they're large,
+high-traffic retailers that commonly run heavier bot-protection
+(Akamai/Cloudflare-style), making reliable scraping less likely to succeed
+and more effort to maintain. The 5 kept are the official brand site plus
+smaller-to-mid retailers more likely to be scraping-tolerant, keeping this
+simpler and more reliable while it's still unverified against live sites
+(see the callout below).
 
 - **Per-site adapters** (`services/searchProviders/sites/`): each retailer
   gets a `SearchProvider`-conforming adapter (the same interface the app's
@@ -72,7 +80,7 @@ zalando.com    endclothing.com   nordstrom.com   macys.com
   (`extractProductCandidates.ts` - a generic, domain-scoped anchor-tag parser,
   not brittle per-site CSS classes). Every candidate then goes through the
   **same, unchanged verification/matching engine** (`verification.ts`,
-  `matching.ts`) regardless of which of the 9 sites it came from.
+  `matching.ts`) regardless of which of the 5 sites it came from.
 - **Image extraction** (`services/pageFetcher.ts`): once a candidate product
   page is fetched, the primary image is resolved through a priority chain -
   `og:image` first, then schema.org JSON-LD `Product.image`, then a handful
@@ -84,13 +92,13 @@ zalando.com    endclothing.com   nordstrom.com   macys.com
   `services/productSearch.ts`): since there's no external quota to conserve
   anymore, an item's attempts run back-to-back in one call, stopping as soon
   as a confident match is found:
-  1. Style Code alone, across all 9 sites.
+  1. Style Code alone, across all 5 sites.
   2. Style Code + Colour Name, only if attempt 1 wasn't confident.
   3. Style Code + Colour Name + Category, only if attempt 2 wasn't confident.
 - **Politeness, not quota** (`services/searchProviders/politeness.ts`): a
   configurable minimum delay (`SITE_SEARCH_DELAY_MS`, default 1500ms) between
   two requests to the *same* retailer - tracked per domain, so a run against
-  all 9 sites doesn't needlessly serialize across different retailers. A full
+  all 5 sites doesn't needlessly serialize across different retailers. A full
   run processes the whole item list in one pass, bounded only by this delay
   and normal runtime; **Pause/Resume** stays available for practical reasons
   (long runtimes, wanting to check progress), not because of any quota.
@@ -114,7 +122,7 @@ zalando.com    endclothing.com   nordstrom.com   macys.com
 
 > **This sandbox has no outbound internet access** (documented in every
 > session on this project - only the npm registry is reachable through its
-> proxy), so **none of the 9 adapters' URL patterns or extraction heuristics
+> proxy), so **none of the 5 adapters' URL patterns or extraction heuristics
 > could be verified against the live, current sites.** They were built
 > against general, best-effort knowledge of each retailer's typical
 > commerce-platform conventions - see `sites/configs.ts` for exactly which
@@ -180,7 +188,7 @@ Photo-finder-/
    - a candidate without a code match can never outrank one with a match,
    no matter its raw score. This directly implements the "style code beats
    visual similarity" requirement, and applies identically no matter which
-   of the 9 sites a candidate came from.
+   of the 5 sites a candidate came from.
 6. Nothing is ever auto-approved. The best candidate becomes the product's
    suggested image/status; a human must explicitly Approve, Reject, pick a
    different candidate, or upload their own image before it's downloaded.
@@ -261,7 +269,7 @@ every variable below is an optional tuning knob:
 3. **Confirm Import** (or Cancel) - creates the job and every product row.
 4. On the **Job Detail** page: **Start Search** runs the escalating search
    across the whole job (Style Code → +Colour → +Category per item, across
-   all 9 sites - see §1b), or **Pause / Resume / Cancel / Retry Failed /
+   all 5 sites - see §1b), or **Pause / Resume / Cancel / Retry Failed /
    Search Selected** while it runs. Live stats (Total, Images Found,
    High/Medium Confidence, Needs Review, Not Found, Approved, Rejected,
    Failed, Pending), per-site health, and a progress bar update
@@ -307,7 +315,7 @@ every variable below is an optional tuning knob:
   - `botCheck.test.ts` (5 tests): flags 403/429/503 and common CAPTCHA/block
     page text; does not flag an ordinary 200 response or a legitimate
     "no results found" page.
-  - `configs.test.ts` (4 tests): all 9 target domains are present; every
+  - `configs.test.ts` (4 tests): all 5 target domains are present; every
     config builds an `https://` URL on its own domain; queries are
     URL-encoded; the query appears in some query-string parameter.
   - `politeness.test.ts` (3 tests): a domain's first request isn't delayed;
@@ -345,25 +353,32 @@ every variable below is an optional tuning knob:
   in this sandbox to test against further).
 - Verified `createSiteAdapter`'s retry-then-throw behavior directly against
   the real, installed `pdfkit`/`cheerio` versions (not just types).
-- Ran `npm run smoke:sites -w server -- 50512345 Black "T-Shirt"` end-to-end
-  in this sandbox to confirm the script itself (imports, escalating-query
-  preview, per-site fan-out, health-aware error handling) runs correctly
-  top-to-bottom; every site correctly reported "no candidates" rather than
-  crashing, since this sandbox cannot actually reach any of the 9 sites.
+- Ran `npm run smoke:sites -w server -- 50512345 Black "T-Shirt"` and, later,
+  a real item from a user's sheet (`npm run smoke:sites -w server --
+  50464300 "OPEN BLUE" OUTERWEAR`) end-to-end in this sandbox to confirm the
+  script itself (query escalation, per-site fan-out, health-aware error
+  handling) runs correctly top-to-bottom.
+- Diagnosed *why* every site reports "no candidates" here: this sandbox's
+  outbound proxy only allowlists package registries (npmjs, pypi, etc.) and
+  Anthropic infra - a direct `curl` to `hugoboss.com` gets a **403 from the
+  local sandbox proxy itself** (`CONNECT tunnel failed, response 403`),
+  before the request ever reaches the real internet. So the "no candidates"
+  result is the sandbox's network policy, not a signal about whether any
+  adapter's extraction logic actually works - confirmed by direct `curl`
+  testing, not just inference.
 - Previously verified in earlier sessions (unaffected by this pivot):
   full import → mapping → confirm flow; manual image upload → approve →
   PDF/ZIP generation (grid layout, category grouping, Season sort verified
   separately when that feature was added); Playwright coverage of Dashboard,
   Import Wizard, Job Detail, Product Review, and the candidate-comparison
   screen at desktop/tablet/mobile viewports.
-- **Not yet tested end-to-end: any of the 9 site adapters against the real,
-  live internet.** This sandbox has no outbound internet access (documented
-  since the very first session on this project - only the npm registry is
-  reachable through its proxy), so none of `sites/configs.ts`'s URL patterns
-  or the shared extraction/image-fallback heuristics could be verified
-  against the actual current markup of hugoboss.com, farfetch.com,
-  mrporter.com, selfridges.com, bloomingdales.com, zalando.com,
-  endclothing.com, nordstrom.com, or macys.com. **Run
+- **Not yet tested end-to-end: any of the 5 site adapters against the real,
+  live internet.** This sandbox has no outbound internet access to arbitrary
+  hosts (confirmed directly, see above - only the npm registry and similar
+  package-registry infra are reachable), so none of `sites/configs.ts`'s URL
+  patterns or the shared extraction/image-fallback heuristics could be
+  verified against the actual current markup of hugoboss.com, farfetch.com,
+  mrporter.com, selfridges.com, or endclothing.com. **Run
   `npm run smoke:sites -w server -- <styleCode> [colour] [category]`
   from a machine with real internet access before trusting this in
   production** - it prints, per site, how many candidates were found and
@@ -374,7 +389,7 @@ every variable below is an optional tuning knob:
 
 ## 7. Known limitations / what still needs verification
 
-- **Every one of the 9 site adapters' URL patterns and HTML-extraction
+- **Every one of the 5 site adapters' URL patterns and HTML-extraction
   heuristics is unverified against the live internet** (see §1b/§6) - this
   is the single biggest thing to check before relying on this in production.
   Expect some adapters to need their `buildSearchUrl` or
@@ -459,7 +474,7 @@ server/src/
       health.ts               per-site success/failure tracking
       index.ts                runSiteSearch: fans a query out to every adapter
       sites/
-        configs.ts             the 9 target retailers' search URL builders
+        configs.ts             the 5 target retailers' search URL builders
         index.ts                builds + exports the 9 SearchProvider adapters
         fixtures/               hand-built sample HTML used by the tests
     robotsCheck.ts / pageFetcher.ts   robots.txt-respecting page fetch + image extraction
@@ -473,7 +488,7 @@ server/src/
   routes/                 import, jobs, products, export, cache, quickSearch
   lib/                    sanitize.ts, validateUrl.ts (SSRF guard), ids.ts, httpFetch.ts
   scripts/
-    smokeTestSites.ts       manual, live smoke test for the 9 site adapters (not run by CI)
+    smokeTestSites.ts       manual, live smoke test for the 5 site adapters (not run by CI)
 web/src/
   pages/                  Dashboard, ImportWizard, JobDetail, ProductReview
   components/             ProductCard, StatCard, ProgressBar, StatusBadge, Navbar

@@ -1,7 +1,7 @@
 import { env } from "../../env.js";
 
 // Per-domain (not global) minimum gap between outbound requests, so a run
-// searching all 9 sites doesn't needlessly serialize across different
+// searching all enabled sites doesn't needlessly serialize across different
 // retailers - only repeated requests to the *same* site get spaced out. This
 // is about being a good citizen toward each retailer's servers, not about
 // conserving any quota (there is none).

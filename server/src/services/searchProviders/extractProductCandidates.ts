@@ -66,7 +66,7 @@ function sameSite(hostname: string, domain: string): boolean {
  * Pure HTML parsing, no network - extracts candidate product-page links from
  * a fetched on-site search-results page. Shared by every site adapter so the
  * fragile part (matching a real product tile vs. nav chrome) is written and
- * tested once instead of nine times.
+ * tested once instead of once per site.
  */
 export function extractProductCandidates(
   html: string,

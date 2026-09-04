@@ -7,14 +7,10 @@ const EXPECTED_DOMAINS = [
   "farfetch.com",
   "mrporter.com",
   "selfridges.com",
-  "bloomingdales.com",
-  "zalando.com",
   "endclothing.com",
-  "nordstrom.com",
-  "macys.com",
 ];
 
-test("exposes exactly the 9 target retailer domains", () => {
+test("exposes exactly the 5 target retailer domains", () => {
   assert.deepEqual(
     SITE_CONFIGS.map((c) => c.domain).sort(),
     [...EXPECTED_DOMAINS].sort()

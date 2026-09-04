@@ -3,13 +3,13 @@
  * Manual, live smoke test for the direct-site-search adapters.
  *
  * NOT part of the automated test suite (npm test only picks up
- * src/**\/*.test.ts) - this script makes real HTTP requests to all 9
+ * src/**\/*.test.ts) - this script makes real HTTP requests to all 5
  * retailer domains and is meant to be run by a human, on a machine with
  * real internet access, after changing a site adapter's URL pattern or
  * extraction logic.
  *
  * Why this exists: the sandbox this project has been developed in has no
- * outbound internet access, so none of the 9 site adapters' URL patterns or
+ * outbound internet access, so none of the 5 site adapters' URL patterns or
  * HTML-parsing heuristics could be verified against the live, current
  * sites (see sites/configs.ts and the README for details). Run this after
  * any adapter change, from an environment with real network access, before
