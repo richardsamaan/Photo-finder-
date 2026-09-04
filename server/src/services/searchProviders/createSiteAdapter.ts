@@ -39,8 +39,19 @@ export function createSiteAdapter(config: SiteAdapterConfig): SearchProvider {
           const res = await fetchWithTimeout(searchUrl);
           const html = await res.text();
 
-          if (!res.ok || looksLikeBotBlock(res.status, html)) {
-            throw new Error(`Blocked or non-OK response from ${config.domain} (status ${res.status})`);
+          // Distinguish "blocked" (bot-check/rate-limit) from "wrong URL"
+          // (404 - the site responded normally, our search URL pattern is
+          // just wrong) from any other non-OK status: these need very
+          // different fixes (see sites/configs.ts for a live example), and
+          // lumping them into one message hides which one applies.
+          if (looksLikeBotBlock(res.status, html)) {
+            throw new Error(`BLOCKED by ${config.domain} (status ${res.status}) - bot-check/rate-limit, not a URL problem`);
+          }
+          if (res.status === 404) {
+            throw new Error(`404 from ${config.domain} - the search URL pattern is likely wrong, not blocked`);
+          }
+          if (!res.ok) {
+            throw new Error(`Non-OK response from ${config.domain} (status ${res.status})`);
           }
 
           const candidates = extractProductCandidates(html, searchUrl, {

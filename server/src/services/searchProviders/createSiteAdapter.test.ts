@@ -87,3 +87,20 @@ test("throws on a non-OK HTTP status", async () => {
   const adapter = createSiteAdapter({ domain: "example.com", buildSearchUrl: (q) => `https://example.com/?q=${q}` });
   await assert.rejects(() => adapter.search("50512345"));
 });
+
+// Regression: a live run against real sites returned 403 (bot-check) for
+// some and 404 (wrong URL) for others - two very different problems that
+// the original error message ("Blocked or non-OK response") didn't
+// distinguish, which cost a round-trip to diagnose. The message itself is
+// now the diagnostic signal.
+test("a 404 error message says the URL is wrong, not that the site blocked us", async () => {
+  mockFetchOnce(404, "Not Found");
+  const adapter = createSiteAdapter({ domain: "example.com", buildSearchUrl: (q) => `https://example.com/?q=${q}` });
+  await assert.rejects(() => adapter.search("50512345"), /404 from example\.com.*URL pattern is likely wrong/);
+});
+
+test("a bot-check response's error message says BLOCKED, not a URL problem", async () => {
+  globalThis.fetch = (async () => new Response("Please complete this CAPTCHA to continue", { status: 200 })) as typeof fetch;
+  const adapter = createSiteAdapter({ domain: "example.com", buildSearchUrl: (q) => `https://example.com/?q=${q}` });
+  await assert.rejects(() => adapter.search("50512345"), /BLOCKED by example\.com.*not a URL problem/);
+});

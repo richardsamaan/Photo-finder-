@@ -40,19 +40,29 @@
 import * as cheerio from "cheerio";
 
 // --- Config: the 5 target sites (kept in sync with sites/configs.ts) ---
-
+//
+// Live-run findings so far (see sites/configs.ts for the full writeup):
+// hugoboss.com works but needed a tighter productUrlPattern (below) after a
+// bare style-code query matched a kids'/junior category page, not the
+// product; farfetch.com/mrporter.com/endclothing.com 404 on their original
+// guessed paths (not blocked, just wrong path - alternates below, still
+// unverified); selfridges.com still 403s even with realistic browser
+// headers, consistent with heavier bot protection (see the README).
 const SITE_CONFIGS = [
   {
     domain: "hugoboss.com",
     buildSearchUrl: (q) => `https://www.hugoboss.com/us/search/?q=${encodeURIComponent(q)}`,
+    // Require a real product id (6+ digit run) before the .html, so a
+    // category/listing page can't pass as a product page.
+    productUrlPattern: /\d{6,}[^/]*\.html$/i,
   },
   {
     domain: "farfetch.com",
-    buildSearchUrl: (q) => `https://www.farfetch.com/shopping/search/?q=${encodeURIComponent(q)}`,
+    buildSearchUrl: (q) => `https://www.farfetch.com/search?q=${encodeURIComponent(q)}`,
   },
   {
     domain: "mrporter.com",
-    buildSearchUrl: (q) => `https://www.mrporter.com/en-us/search/?keywords=${encodeURIComponent(q)}`,
+    buildSearchUrl: (q) => `https://www.mrporter.com/en-us/search?keyword=${encodeURIComponent(q)}`,
   },
   {
     domain: "selfridges.com",
@@ -60,7 +70,7 @@ const SITE_CONFIGS = [
   },
   {
     domain: "endclothing.com",
-    buildSearchUrl: (q) => `https://www.endclothing.com/us/catalogsearch/result/?q=${encodeURIComponent(q)}`,
+    buildSearchUrl: (q) => `https://www.endclothing.com/search?q=${encodeURIComponent(q)}`,
   },
 ];
 
@@ -231,7 +241,7 @@ function sameSite(hostname, domain) {
   const d = domain.toLowerCase().replace(/^www\./, "");
   return h === d || h.endsWith(`.${d}`);
 }
-function extractProductCandidates(html, searchPageUrl, domain, maxCandidates = 5) {
+function extractProductCandidates(html, searchPageUrl, config, maxCandidates = 5) {
   const $ = cheerio.load(html);
   const base = new URL(searchPageUrl);
   const seen = new Set();
@@ -248,11 +258,12 @@ function extractProductCandidates(html, searchPageUrl, domain, maxCandidates = 5
     } catch {
       return;
     }
-    if (!sameSite(abs.hostname, domain)) return;
+    if (!sameSite(abs.hostname, config.domain)) return;
 
     const path = abs.pathname.toLowerCase();
     if (NON_PRODUCT_PATH_HINTS.some((hint) => path.includes(hint))) return;
-    if (!looksLikeProductPath(path)) return;
+    const isProduct = config.productUrlPattern ? config.productUrlPattern.test(abs.pathname) : looksLikeProductPath(path);
+    if (!isProduct) return;
 
     const key = abs.origin + abs.pathname;
     if (seen.has(key)) return;
@@ -343,10 +354,20 @@ async function searchSite(config, query) {
       await politeDelay(config.domain);
       const res = await fetchWithTimeout(searchUrl);
       const html = await res.text();
-      if (!res.ok || looksLikeBotBlock(res.status, html)) {
-        throw new Error(`Blocked or non-OK response from ${config.domain} (status ${res.status})`);
+      // Distinguish "blocked" (bot-check/rate-limit) from "wrong URL"
+      // (404 - the site responded normally, our path is just wrong) from
+      // any other non-OK status - these need very different fixes, so
+      // lumping them into one message hides that.
+      if (looksLikeBotBlock(res.status, html)) {
+        throw new Error(`BLOCKED by ${config.domain} (status ${res.status}) - bot-check/rate-limit, not a URL problem`);
       }
-      return extractProductCandidates(html, searchUrl, config.domain);
+      if (res.status === 404) {
+        throw new Error(`404 from ${config.domain} - the search URL pattern is likely wrong, not blocked`);
+      }
+      if (!res.ok) {
+        throw new Error(`Non-OK response from ${config.domain} (status ${res.status})`);
+      }
+      return extractProductCandidates(html, searchUrl, config);
     } catch (err) {
       lastError = err;
       if (attempt < SITE_SEARCH_MAX_RETRIES) await sleep(500 * 2 ** attempt);
@@ -375,64 +396,76 @@ async function main() {
   console.log("This makes REAL requests to real retailer sites. Be polite - don't loop this.\n");
 
   const queries = buildEscalatingQueries(styleCode, colour, category);
-  console.log(`Escalating query attempts that would be tried: ${JSON.stringify(queries)}`);
-  console.log("(This script tries only attempt 1, Style Code alone, against each site - it's a search/extraction");
-  console.log(" smoke test, not the full confidence-scoring pipeline the actual app runs.)\n");
-  const query = queries[0];
+  const ATTEMPT_LABELS = ["Style Code alone", "+ Colour", "+ Category"];
+  console.log(`Escalating query attempts: ${JSON.stringify(queries)}`);
+  console.log(
+    "Runs ALL of these per site (not just attempt 1) - a bare style-code query can match the wrong"
+  );
+  console.log(
+    "department on a site with fuzzy text search; comparing attempts side by side shows whether +Colour/"
+  );
+  console.log(
+    "+Category actually narrows it down. This is still just search/extraction, not the full"
+  );
+  console.log("confidence-scoring pipeline the actual app runs - eyeball the results yourself.\n");
 
   for (const config of SITE_CONFIGS) {
-    console.log(`--- ${config.domain} ---`);
+    console.log(`=== ${config.domain} ===`);
 
-    let candidates;
-    try {
-      candidates = await searchSite(config, query);
-    } catch (err) {
-      console.log(`  FAILED: ${err.message}`);
-      console.log("");
-      continue;
-    }
+    for (const [i, query] of queries.entries()) {
+      console.log(`  [Attempt ${i + 1}: ${ATTEMPT_LABELS[i]}] query="${query}"`);
 
-    if (candidates.length === 0) {
-      console.log("  No candidates found (could be a genuine no-match or a URL-pattern/selector that needs updating).");
-      console.log("");
-      continue;
-    }
-
-    console.log(`  ${candidates.length} candidate(s):`);
-    for (const c of candidates.slice(0, 3)) {
-      console.log(`    - ${c.url}  (title: "${c.title}")`);
-    }
-
-    const first = candidates[0];
-    const allowed = await isAllowedByRobots(first.url);
-    if (!allowed) {
-      console.log("  First candidate page is disallowed by robots.txt - skipped, as it should be.");
-      console.log("");
-      continue;
-    }
-
-    try {
-      await politeDelay(config.domain);
-      // Referer set to the search-results page, like a real click-through.
-      const res = await fetchWithTimeout(first.url, { referer: config.buildSearchUrl(query) });
-      if (!res.ok) {
-        console.log(`  Could not fetch the first candidate's product page (status ${res.status}).`);
-      } else {
-        const html = await res.text();
-        const image = extractProductImage(html, first.url);
-        if (!image) {
-          console.log("  Fetched the product page but found no image - the gallery-selector fallback may need attention for this site.");
-        } else {
-          console.log(`  Product image resolved: ${image.url} (via ${image.alt || "generic <img> sweep"})`);
-        }
+      let candidates;
+      try {
+        candidates = await searchSite(config, query);
+      } catch (err) {
+        console.log(`    FAILED: ${err.message}`);
+        continue;
       }
-    } catch (err) {
-      console.log(`  Could not fetch the first candidate's product page: ${err.message}`);
+
+      if (candidates.length === 0) {
+        console.log("    No candidates found (genuine no-match, or a URL-pattern/selector that needs updating).");
+        continue;
+      }
+
+      console.log(`    ${candidates.length} candidate(s):`);
+      for (const c of candidates.slice(0, 3)) {
+        console.log(`      - ${c.url}  (title: "${c.title}")`);
+      }
+
+      const first = candidates[0];
+      const allowed = await isAllowedByRobots(first.url);
+      if (!allowed) {
+        console.log("    First candidate page is disallowed by robots.txt - skipped, as it should be.");
+        continue;
+      }
+
+      try {
+        await politeDelay(config.domain);
+        // Referer set to the search-results page, like a real click-through.
+        const res = await fetchWithTimeout(first.url, { referer: config.buildSearchUrl(query) });
+        if (!res.ok) {
+          console.log(`    Could not fetch the first candidate's product page (status ${res.status}).`);
+        } else {
+          const html = await res.text();
+          const image = extractProductImage(html, first.url);
+          if (!image) {
+            console.log("    Fetched the product page but found no image - the gallery-selector fallback may need attention for this site.");
+          } else {
+            console.log(`    Product image resolved: ${image.url} (via ${image.alt || "generic <img> sweep"})`);
+          }
+        }
+      } catch (err) {
+        console.log(`    Could not fetch the first candidate's product page: ${err.message}`);
+      }
     }
     console.log("");
   }
 
   console.log("Done. Compare the above against what you see visiting these sites' search pages yourself in a browser.");
+  console.log("Remember: this script only checks 'does a plausible product page exist', not 'is it actually");
+  console.log("the right style code/colour' - that check lives in the real app's verification engine");
+  console.log("(services/verification.ts), which this standalone script deliberately doesn't include.");
 }
 
 main().catch((err) => {

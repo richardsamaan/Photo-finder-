@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SITE_CONFIGS } from "./configs.js";
+import { extractProductCandidates } from "../extractProductCandidates.js";
 
 const EXPECTED_DOMAINS = [
   "hugoboss.com",
@@ -44,4 +45,28 @@ test("each site's search URL carries the query in some query-string parameter", 
       `${config.domain} search URL has no query param carrying the search term: ${url}`
     );
   }
+});
+
+// Regression test for a real bug found on a live run (2026): hugoboss.com's
+// generic ".html-ending" fallback let a category/listing page through as if
+// it were a product page (the query matched an unrelated kids'/junior
+// listing, and its "product image" was just the site's generic logo, since
+// a listing page has no single product image). productUrlPattern now
+// requires a real numeric product id before the .html.
+test("hugoboss.com's productUrlPattern excludes category/listing pages but keeps real product pages", () => {
+  const hugoBoss = SITE_CONFIGS.find((c) => c.domain === "hugoboss.com");
+  assert.ok(hugoBoss?.productUrlPattern, "hugoboss.com should define a productUrlPattern override");
+
+  const html = `
+    <a href="/us/en/kids/junior-new-in.html">Junior New In</a>
+    <a href="/us/en/womens/outerwear.html">Women's Outerwear</a>
+    <a href="/us/en/slim-fit-shirt-in-cotton-poplin-50512345.html">Slim-Fit Shirt</a>
+  `;
+  const results = extractProductCandidates(html, "https://www.hugoboss.com/us/search/?q=50512345", {
+    domain: "hugoboss.com",
+    productUrlPattern: hugoBoss.productUrlPattern,
+  });
+
+  assert.equal(results.length, 1);
+  assert.ok(results[0].url.endsWith("-50512345.html"));
 });

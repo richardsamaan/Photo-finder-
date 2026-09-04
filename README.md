@@ -71,6 +71,20 @@ smaller-to-mid retailers more likely to be scraping-tolerant, keeping this
 simpler and more reliable while it's still unverified against live sites
 (see the callout below).
 
+**Live-run status (first real-internet test, from a user's own machine, realistic browser headers):**
+
+| Site | Status | Diagnosis | Next step |
+|---|---|---|---|
+| `hugoboss.com` | Search URL works (200) | Bare style-code query matched an unrelated kids'/junior category page, not the product - the URL was being classified as a product page just for ending in `.html`, which lots of non-product pages also do | Fixed: `productUrlPattern` now requires a real numeric product id before the `.html` (`sites/configs.ts`) - **needs a live re-test to confirm** |
+| `farfetch.com` | 404 | Site responded normally - the guessed search path was simply wrong, not blocked | Updated to a simpler guess (`/search?q=`) - **still unverified, needs a live re-test** |
+| `mrporter.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/en-us/search?keyword=`) - **still unverified, needs a live re-test** |
+| `endclothing.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/search?q=`), dropping the assumed Magento `/catalogsearch/result/` path - **still unverified, needs a live re-test** |
+| `selfridges.com` | Still 403 with realistic browser headers | Headers alone didn't flip it (unlike hugoboss.com) - consistent with heavier bot management (TLS fingerprinting and/or a JS challenge) that no plain HTTP client can satisfy | No code fix possible without live access to inspect the response; see the "what would it take" discussion below |
+
+The single fastest way to nail the three 404s exactly: visit each site in a
+real browser, use its own search box, and copy the resulting URL back -
+far more reliable than another round of blind guessing.
+
 - **Per-site adapters** (`services/searchProviders/sites/`): each retailer
   gets a `SearchProvider`-conforming adapter (the same interface the app's
   original API-key-based providers used - only the data source changed) built
@@ -403,30 +417,56 @@ every variable below is an optional tuning knob:
   separately when that feature was added); Playwright coverage of Dashboard,
   Import Wizard, Job Detail, Product Review, and the candidate-comparison
   screen at desktop/tablet/mobile viewports.
-- **Not yet tested end-to-end: any of the 5 site adapters against the real,
-  live internet.** This sandbox has no outbound internet access to arbitrary
-  hosts (confirmed directly, see above - only the npm registry and similar
-  package-registry infra are reachable), so none of `sites/configs.ts`'s URL
-  patterns or the shared extraction/image-fallback heuristics could be
-  verified against the actual current markup of hugoboss.com, farfetch.com,
-  mrporter.com, selfridges.com, or endclothing.com. **Run
-  `npm run smoke:sites -w server -- <styleCode> [colour] [category]`
-  from a machine with real internet access before trusting this in
-  production** - it prints, per site, how many candidates were found and
-  whether a product image was resolved from the first one, so you can
-  compare directly against what you see visiting each site yourself.
+- **Now tested against the real, live internet - by the project owner, from
+  their own machine** (this sandbox still can't reach it directly). First
+  run, with realistic browser headers: `hugoboss.com` succeeded (200, real
+  candidates) but a bare style-code query matched an unrelated kids'/junior
+  category page rather than the actual product, and its "product image"
+  turned out to be the site's generic logo, not a real product photo -
+  both symptoms of the same root cause, a too-loose product-URL heuristic
+  letting a category/listing page through as if it were a single product
+  page. `farfetch.com`, `mrporter.com`, and `endclothing.com` all came back
+  404 (not blocked - the site responded normally, the guessed search path
+  was just wrong). `selfridges.com` still came back 403 even with the full
+  browser header set. See §1b's status table and §7 for the fix applied
+  (`hugoboss.com`'s `productUrlPattern`), the new best-effort URL guesses
+  for the three 404s, and the honest read on `selfridges.com`. **None of
+  these changes have been re-verified live yet** - re-run
+  `npm run smoke:sites -w server -- <styleCode> [colour] [category]` (or
+  the standalone version) from a machine with real internet access to
+  confirm before trusting this in production.
 
 ---
 
 ## 7. Known limitations / what still needs verification
 
-- **Every one of the 5 site adapters' URL patterns and HTML-extraction
-  heuristics is unverified against the live internet** (see §1b/§6) - this
-  is the single biggest thing to check before relying on this in production.
-  Expect some adapters to need their `buildSearchUrl` or
-  `productUrlPattern` adjusted once run against the real sites; the
-  per-site health panel on the Job Detail page and the smoke-test script
-  exist specifically to make that easy to spot.
+- **4 of the 5 site adapters still need a live re-test after their first
+  real-internet run** (see §1b's status table) - `hugoboss.com`'s product-URL
+  pattern was tightened after it let a category page through, and
+  `farfetch.com`/`mrporter.com`/`endclothing.com`'s search URLs were all
+  wrong (404, not blocked) and have been updated to new best-effort
+  guesses. None of the updates could be verified from this session (still
+  no outbound internet access here) - re-run the smoke test to confirm.
+  The per-site health panel on the Job Detail page and the smoke-test
+  scripts' now-differentiated error messages (`BLOCKED` vs `404` vs other
+  non-OK) exist specifically to make this kind of thing easy to spot and
+  diagnose without a round-trip to ask what a status code meant.
+- **`selfridges.com` still 403s even with a realistic browser header set** -
+  a materially different signal than a 404 (wrong URL) or a 403 that a
+  browser UA fixes: headers alone not moving it is consistent with heavier
+  bot management doing TLS fingerprinting (JA3/JA4) and/or a JS challenge,
+  neither of which any plain HTTP client (this app's `fetch`-based adapters
+  included) can satisfy, headers or not. Confirming that with certainty
+  would take either inspecting the actual 403 response body for tell-tale
+  markers (an Akamai/PerimeterX/Cloudflare challenge page has a
+  recognizable signature) or trying a real headless browser
+  (Playwright/Puppeteer driving actual Chromium, which has a genuine
+  browser TLS/JS fingerprint) to see if that gets further. The latter is a
+  meaningfully heavier dependency (a full browser binary, slower, more
+  moving parts) that this project has deliberately avoided so far - worth
+  a deliberate decision, not a reflexive add, if `selfridges.com` turns
+  out to need it. If it's not worth that investment, dropping it joins the
+  4 sites already trimmed for the same underlying reason (see §1b).
 - Direct site search means an honest bot user-agent
   (`ProductImageFinderBot/1.0`, see `lib/httpFetch.ts`) is sent on every
   request in the main app - by design, this project does not spoof a
