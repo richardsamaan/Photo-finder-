@@ -144,6 +144,22 @@ simpler and more reliable while it's still unverified against live sites
 > npm install
 > node standalone-site-test.js <styleCode> [colourName] [category]
 > ```
+> By default it sends a realistic Chrome header set (User-Agent, Accept,
+> Accept-Language, Sec-Fetch-*, Referer on the product-page follow-up) -
+> not just this app's normal honest bot identity - specifically to help
+> answer "is a missing browser fingerprint what's blocking this," since a
+> non-browser-shaped request is an easy, common reason for a 403 that has
+> nothing to do with URL patterns or extraction logic. Set `BROWSER_UA=0`
+> to compare against the honest-bot identity the rest of this app uses.
+> Headers alone won't get past everything, though: sites running
+> Akamai/Cloudflare/PerimeterX/DataDome-style bot management commonly also
+> fingerprint the TLS handshake itself (JA3/JA4) and/or require executing a
+> JS challenge - neither of which a plain HTTP client, however well-headered,
+> can satisfy. If a site still blocks with realistic headers, the next step
+> up is a real headless browser (Playwright/Puppeteer driving actual
+> Chromium) instead of a raw HTTP client - a meaningfully heavier
+> dependency (a full browser binary) that this project has deliberately
+> avoided so far.
 
 ---
 
@@ -413,10 +429,16 @@ every variable below is an optional tuning knob:
   exist specifically to make that easy to spot.
 - Direct site search means an honest bot user-agent
   (`ProductImageFinderBot/1.0`, see `lib/httpFetch.ts`) is sent on every
-  request - by design, this project does not spoof a browser user-agent to
-  evade detection. Some retailers may rate-limit or block a declared bot
-  more readily than they would a browser; that shows up as a "failed" site
-  in health tracking, not a pipeline crash.
+  request in the main app - by design, this project does not spoof a
+  browser user-agent to evade detection there. Some retailers may
+  rate-limit or block a declared bot more readily than they would a
+  browser; that shows up as a "failed" site in health tracking, not a
+  pipeline crash. The standalone diagnostic script (§1b, above) is the one
+  deliberate exception - it defaults to realistic browser headers
+  specifically to help tell "blocked for lacking a browser fingerprint"
+  apart from "blocked regardless" (TLS fingerprinting, JS challenges), and
+  can be switched to the same honest identity (`BROWSER_UA=0`) for a direct
+  comparison. The main app's policy is unchanged by this.
 - `xlsx` (SheetJS) has two known npm-registry advisories (prototype
   pollution / ReDoS) with no npm-published fix at the time of writing; the
   maintainers publish patched builds outside npm. Risk is limited here

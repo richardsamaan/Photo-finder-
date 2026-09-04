@@ -67,19 +67,59 @@ const SITE_CONFIGS = [
 const SITE_SEARCH_DELAY_MS = Number(process.env.SITE_SEARCH_DELAY_MS || 1500);
 const SITE_SEARCH_MAX_RETRIES = Number(process.env.SITE_SEARCH_MAX_RETRIES || 1);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 12000);
-const USER_AGENT = "ProductImageFinderBot/1.0 (+catalog-generation; contact: configure-in-env)";
+
+// --- User-Agent policy: an explicit, visible choice, not a silent one ---
+//
+// The rest of this app (server/src/lib/httpFetch.ts) deliberately sends an
+// honest, self-identifying bot User-Agent - see the README's "known
+// limitations" section: this project does not spoof a browser to evade
+// detection. This standalone diagnostic script is different on purpose:
+// it exists specifically to answer "is a missing browser-shaped fingerprint
+// what's causing the block", so BROWSER_UA=1 (the default here) sends a
+// full, realistic Chrome header set. Set BROWSER_UA=0 to instead send the
+// same honest bot identity as the rest of the app, for comparison.
+const USE_BROWSER_HEADERS = process.env.BROWSER_UA !== "0";
+const HONEST_UA = "ProductImageFinderBot/1.0 (+catalog-generation; contact: configure-in-env)";
+const CHROME_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/**
+ * A realistic set of headers a real Chrome browser sends automatically on
+ * a normal page navigation - not just the User-Agent. `referer` should be
+ * the URL a real user would have just been on (omit for the first request
+ * to a site; pass the search-results URL when following a link from it).
+ */
+function buildBrowserHeaders({ referer } = {}) {
+  if (!USE_BROWSER_HEADERS) return { "User-Agent": HONEST_UA };
+  return {
+    "User-Agent": CHROME_UA,
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": referer ? "same-origin" : "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24", "Google Chrome";v="131"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    Priority: "u=0, i",
+    ...(referer ? { Referer: referer } : {}),
+  };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// --- HTTP (mirrors lib/httpFetch.ts) ---
+// --- HTTP (mirrors lib/httpFetch.ts, extended with realistic browser headers) ---
 
-async function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithTimeout(url, { timeoutMs = FETCH_TIMEOUT_MS, referer } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { signal: controller.signal, headers: { "User-Agent": USER_AGENT } });
+    return await fetch(url, { signal: controller.signal, headers: buildBrowserHeaders({ referer }) });
   } finally {
     clearTimeout(timer);
   }
@@ -150,7 +190,7 @@ function parseRobots(text) {
 }
 async function loadRobots(origin) {
   try {
-    const res = await fetchWithTimeout(`${origin}/robots.txt`, 5000);
+    const res = await fetchWithTimeout(`${origin}/robots.txt`, { timeoutMs: 5000 });
     if (!res.ok) return { disallow: [], allow: [] };
     return parseRobots(await res.text());
   } catch {
@@ -327,6 +367,11 @@ async function main() {
 
   console.log(`Standalone site test for: styleCode=${styleCode} colour=${colour} category=${category}`);
   console.log(`Sites (${SITE_CONFIGS.length}): ${SITE_CONFIGS.map((c) => c.domain).join(", ")}`);
+  console.log(
+    USE_BROWSER_HEADERS
+      ? "Header mode: realistic Chrome browser headers (User-Agent, Accept, Accept-Language, Sec-Fetch-*, Referer, etc.) - set BROWSER_UA=0 to compare against this app's normal honest bot identity instead."
+      : "Header mode: honest bot identity (ProductImageFinderBot/1.0), same as the rest of this app - set BROWSER_UA=1 (the default) to compare against realistic browser headers instead."
+  );
   console.log("This makes REAL requests to real retailer sites. Be polite - don't loop this.\n");
 
   const queries = buildEscalatingQueries(styleCode, colour, category);
@@ -368,7 +413,8 @@ async function main() {
 
     try {
       await politeDelay(config.domain);
-      const res = await fetchWithTimeout(first.url);
+      // Referer set to the search-results page, like a real click-through.
+      const res = await fetchWithTimeout(first.url, { referer: config.buildSearchUrl(query) });
       if (!res.ok) {
         console.log(`  Could not fetch the first candidate's product page (status ${res.status}).`);
       } else {
