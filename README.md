@@ -129,6 +129,21 @@ simpler and more reliable while it's still unverified against live sites
 > parts are unverified, and run `npm run smoke:sites -w server -- <styleCode>
 > [colour] [category]` (from a machine with real internet access) before
 > trusting this in production. See §6 for what *was* verified automatically.
+>
+> **No compiler on your machine?** `npm run smoke:sites` needs the full
+> server workspace installed, including `better-sqlite3` and `sharp` -
+> both native/compiled addons that need a C++ toolchain (+ Python) to build
+> from source when no prebuilt binary matches your platform, which can fail
+> `npm install` outright on some Windows machines. For exactly that case,
+> `server/scripts/standalone-site-test/` is a fully separate, dependency-light
+> version of the same search+extraction smoke test - no database, no
+> Express, no confidence-scoring engine, and its only npm dependency is
+> `cheerio` (pure JavaScript, nothing to compile):
+> ```
+> cd server/scripts/standalone-site-test
+> npm install
+> node standalone-site-test.js <styleCode> [colourName] [category]
+> ```
 
 ---
 
@@ -489,6 +504,8 @@ server/src/
   lib/                    sanitize.ts, validateUrl.ts (SSRF guard), ids.ts, httpFetch.ts
   scripts/
     smokeTestSites.ts       manual, live smoke test for the 5 site adapters (not run by CI)
+    standalone-site-test/    same smoke test, fully standalone - no native deps, no DB/Express,
+                             own package.json (just cheerio) - for machines without a C++ toolchain
 web/src/
   pages/                  Dashboard, ImportWizard, JobDetail, ProductReview
   components/             ProductCard, StatCard, ProgressBar, StatusBadge, Navbar

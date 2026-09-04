@@ -15,6 +15,15 @@
  * any adapter change, from an environment with real network access, before
  * trusting it in production.
  *
+ * Requires the full server workspace to be installed (this script imports
+ * the real app's source directly), including native/compiled deps
+ * (better-sqlite3, sharp) that need a C++ toolchain to build from source on
+ * platforms with no matching prebuilt binary. If `npm install` fails for
+ * that reason (e.g. on Windows without build tools installed), use
+ * scripts/standalone-site-test/ instead - a fully separate copy of this
+ * same search+extraction smoke test with its own tiny package.json (just
+ * cheerio, no native deps).
+ *
  * Usage:
  *   npx tsx scripts/smokeTestSites.ts <styleCode> [colourName] [category]
  *   npm run smoke:sites -- <styleCode> [colourName] [category]

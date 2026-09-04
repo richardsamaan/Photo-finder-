@@ -1,0 +1,10 @@
+{
+  "name": "standalone-site-test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fully isolated smoke test for the 5 site-search adapters - no native/compiled dependencies, no database, no dependency on the rest of the server app. See ../smokeTestSites.ts for the full-app version.",
+  "type": "module",
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  }
+}
