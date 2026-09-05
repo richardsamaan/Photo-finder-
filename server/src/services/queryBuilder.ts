@@ -1,7 +1,8 @@
 export interface QueryProduct {
   styleCode: string;
   colour: string;
-  category: string;
+  /** Optional - a distinct internal colour code (e.g. "009"), not the colour name. */
+  colourCode?: string | null;
 }
 
 /**
@@ -9,7 +10,9 @@ export interface QueryProduct {
  * rather than cost-ordered (there is no external quota to conserve here):
  *   1. Style Code alone.
  *   2. Style Code + Colour Name.
- *   3. Style Code + Colour Name + Category (only if Category is present).
+ *   3. Style Code + Colour Code (only if a Colour Code is present) - not
+ *      combined with the Colour Name, a fresh, narrower attempt in its
+ *      own right.
  * Each site's own search engine tokenizes this the same way a shopper
  * typing into its search box would - no need for multiple phrasings of the
  * same terms the way a generic web-search engine benefited from.
@@ -17,10 +20,10 @@ export interface QueryProduct {
 export function buildEscalatingQueries(p: QueryProduct): string[] {
   const code = p.styleCode.trim();
   const colour = p.colour.trim();
-  const category = p.category.trim();
+  const colourCode = (p.colourCode ?? "").trim();
 
   const attempts = [code, [code, colour].filter(Boolean).join(" ")];
-  if (category) attempts.push([code, colour, category].filter(Boolean).join(" "));
+  if (colourCode) attempts.push([code, colourCode].filter(Boolean).join(" "));
 
   // De-dupe while preserving order (e.g. a blank colour collapses attempt 1 and 2).
   return Array.from(new Set(attempts.map((q) => q.replace(/\s+/g, " ").trim()))).filter(Boolean);

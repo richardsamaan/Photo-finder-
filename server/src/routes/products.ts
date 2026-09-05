@@ -52,7 +52,13 @@ productsRouter.post("/:id/search-again", async (req, res) => {
 
   try {
     const outcome = await searchAndVerifyProduct(
-      { id: product.id, styleCode: product.styleCode, colour: product.colour, category: product.category },
+      {
+        id: product.id,
+        styleCode: product.styleCode,
+        colour: product.colour,
+        colourCode: product.colourCode,
+        category: product.category,
+      },
       {
         useCache: false,
         domainFilterMode: (job?.domainFilterMode ?? "none") as DomainFilterMode,

@@ -7,7 +7,7 @@ import type { RawSearchResult, SearchProvider } from "./types.js";
 export interface SiteSearchOptions {
   domainFilterMode?: DomainFilterMode;
   officialDomain?: string | null;
-  /** Test-only override - defaults to the real site registry. */
+  /** Optional override of which adapters to fan out to (tests, or the smoke-test scripts' SITES filter) - defaults to the real site registry. */
   adapters?: SearchProvider[];
 }
 

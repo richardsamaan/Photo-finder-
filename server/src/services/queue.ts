@@ -61,10 +61,10 @@ interface JobSearchSettings {
 }
 
 /**
- * Processes one product end to end: the escalating Style Code -> +Colour ->
- * +Category attempts all happen inside searchAndVerifyProduct itself (see
- * productSearch.ts) - there is no external quota to pace them against
- * anymore, so a single call here can go through all three back-to-back.
+ * Processes one product end to end: the escalating Style Code -> +Colour
+ * Name -> +Colour Code attempts all happen inside searchAndVerifyProduct
+ * itself (see productSearch.ts) - there is no external quota to pace them
+ * against anymore, so a single call here can go through all three back-to-back.
  */
 async function processOne(jobId: string, productId: string, settings: JobSearchSettings) {
   const product = db.select().from(products).where(eq(products.id, productId)).get();
@@ -77,7 +77,13 @@ async function processOne(jobId: string, productId: string, settings: JobSearchS
 
   try {
     const outcome = await searchAndVerifyProduct(
-      { id: product.id, styleCode: product.styleCode, colour: product.colour, category: product.category },
+      {
+        id: product.id,
+        styleCode: product.styleCode,
+        colour: product.colour,
+        colourCode: product.colourCode,
+        category: product.category,
+      },
       { useCache: true, domainFilterMode: settings.domainFilterMode, officialDomain: settings.officialDomain }
     );
 

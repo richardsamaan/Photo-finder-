@@ -28,7 +28,7 @@ production (Express static, since `vite build` copies `public/` into `dist/`).
 - **Fields**: item name/description (required), an optional colour name
   (e.g. "burgundy"), and an optional colour hex code (e.g. `#7B1E3A`, with a
   colour-picker synced to the text field).
-- **Search**: runs on the same 9 direct on-site search adapters as the main
+- **Search**: runs on the same 5 direct on-site search adapters as the main
   catalog pipeline (`services/searchProviders/sites/`) - there is no separate
   general-web-search or dedicated image-search API. `queryBuilder.buildQuickSearchQueries`
   generates several phrasing variations (raw query, `+ "product photo"`,
@@ -108,7 +108,11 @@ far more reliable than another round of blind guessing.
   as a confident match is found:
   1. Style Code alone, across all 5 sites.
   2. Style Code + Colour Name, only if attempt 1 wasn't confident.
-  3. Style Code + Colour Name + Category, only if attempt 2 wasn't confident.
+  3. Style Code + Colour Code (a distinct internal code, e.g. `009` - not the
+     Colour Name), only if attempt 2 wasn't confident and the item has a
+     Colour Code. Category is no longer part of query escalation at all - it
+     still exists as an import column and still drives PDF grouping (§6), but
+     no longer appears in any search query.
 - **Politeness, not quota** (`services/searchProviders/politeness.ts`): a
   configurable minimum delay (`SITE_SEARCH_DELAY_MS`, default 1500ms) between
   two requests to the *same* retailer - tracked per domain, so a run against
@@ -141,7 +145,7 @@ far more reliable than another round of blind guessing.
 > against general, best-effort knowledge of each retailer's typical
 > commerce-platform conventions - see `sites/configs.ts` for exactly which
 > parts are unverified, and run `npm run smoke:sites -w server -- <styleCode>
-> [colour] [category]` (from a machine with real internet access) before
+> [colourName] [colourCode]` (from a machine with real internet access) before
 > trusting this in production. See §6 for what *was* verified automatically.
 >
 > **No compiler on your machine?** `npm run smoke:sites` needs the full
@@ -156,8 +160,10 @@ far more reliable than another round of blind guessing.
 > ```
 > cd server/scripts/standalone-site-test
 > npm install
-> node standalone-site-test.js <styleCode> [colourName] [category]
+> node standalone-site-test.js <styleCode> [colourName] [colourCode]
 > ```
+> Add `SITES=hugoboss.com,farfetch.com` before either smoke-test command
+> (the workspace version too) to restrict the run to just those domains.
 > By default it sends a realistic Chrome header set (User-Agent, Accept,
 > Accept-Language, Sec-Fetch-*, Referer on the product-page follow-up) -
 > not just this app's normal honest bot identity - specifically to help
@@ -195,7 +201,7 @@ Photo-finder-/
   Mobile-first responsive layout, tested at 412×915 (Galaxy S24 Ultra),
   820×1180 (tablet), and 1440×900 (desktop).
 - **Search**: a `SearchProvider` interface
-  (`server/src/services/searchProviders/types.ts`) with 9 direct-site
+  (`server/src/services/searchProviders/types.ts`) with 5 direct-site
   adapters (see §1b) fanned out per query by `runSiteSearch`
   (`searchProviders/index.ts`). Adding a 10th retailer means adding one
   config entry to `sites/configs.ts` - no new interface, no API key.
@@ -205,9 +211,10 @@ Photo-finder-/
 ## 2. How the matching/verification logic works
 
 1. **Query generation** (`services/queryBuilder.ts`): 3 escalating attempts
-   per product, most-specific-needed first (Style Code; +Colour; +Category -
-   see §1b). Each site's own search engine tokenizes the plain-text query the
-   same way a shopper typing into its search box would.
+   per product, most-specific-needed first (Style Code; +Colour Name; +Colour
+   Code - see §1b). Category is never part of the query. Each site's own
+   search engine tokenizes the plain-text query the same way a shopper typing
+   into its search box would.
 2. **Search**: each attempt is fanned out to every enabled site adapter in
    parallel, with a per-site politeness delay (`searchProviders/index.ts`).
    Duplicate URLs across sites are de-duplicated.
@@ -304,8 +311,10 @@ every variable below is an optional tuning knob:
 
 1. **Upload** an `.xlsx`, `.xls`, or `.csv` file with Style Code, Colour, and
    Category columns (common header variants like `SKU`, `Color`, `Product
-   Type` are auto-detected); an optional Season column is also detected if
-   present (`Season`, `Collection`, `Drop`, etc.).
+   Type` are auto-detected); optional Season and Colour Code columns are also
+   detected if present (`Season`/`Collection`/`Drop`; `Colour Code`/`Color
+   Code`/`Shade Code`/etc. - a distinct internal colour code like `009`, not
+   the colour name).
 2. **Map columns** - auto-detected mapping is pre-filled; change any dropdown
    if needed. A live preview table and Total Products / Total Categories
    counters update as you adjust the mapping. Also choose a **source-domain
@@ -313,8 +322,8 @@ every variable below is an optional tuning knob:
    retailers) - see §1b.
 3. **Confirm Import** (or Cancel) - creates the job and every product row.
 4. On the **Job Detail** page: **Start Search** runs the escalating search
-   across the whole job (Style Code → +Colour → +Category per item, across
-   all 5 sites - see §1b), or **Pause / Resume / Cancel / Retry Failed /
+   across the whole job (Style Code → +Colour Name → +Colour Code per item,
+   across all 5 sites - see §1b), or **Pause / Resume / Cancel / Retry Failed /
    Search Selected** while it runs. Live stats (Total, Images Found,
    High/Medium Confidence, Needs Review, Not Found, Approved, Rejected,
    Failed, Pending), per-site health, and a progress bar update
@@ -342,7 +351,7 @@ every variable below is an optional tuning knob:
 
 ## 6. Testing performed
 
-**Automated (93 passing tests, `npm test -w server`):**
+**Automated (101 passing tests, `npm test -w server`):**
 - Direct-site-search adapters (added with this pivot), all using **saved,
   hand-built HTML fixtures - no live network calls in the test suite**:
   - `extractProductCandidates.test.ts` (8 tests): real product tiles are
@@ -371,9 +380,11 @@ every variable below is an optional tuning knob:
     skipped, not fatal; success/failure/result-count are recorded correctly
     per site (including that a legitimate zero-results adapter still counts
     as a success); all three domain-filter modes work.
-  - `queryBuilder.test.ts` (5 tests): the 3 escalating attempts build
-    correctly, Category is only appended when present, a blank Colour
-    collapses attempts 1 and 2, and whitespace is normalized.
+  - `queryBuilder.test.ts` (6 tests): the 3 escalating attempts build
+    correctly (Style Code alone; +Colour Name; +Colour Code), attempt 3 is
+    only appended when a Colour Code is present (and is never combined with
+    Colour Name), a blank Colour collapses attempts 1 and 2, and whitespace
+    is normalized.
   - `pageFetcher.test.ts` (8 tests, mocked global `fetch`): the
     og:image → JSON-LD `Product.image` (string, array, or `ImageObject`) →
     gallery-selector → any-`<img>` priority chain resolves correctly at each
@@ -381,8 +392,12 @@ every variable below is an optional tuning knob:
     response returns `null`.
   - `fileParser.test.ts` additions (carried over): Season column
     auto-detection (including aliases like `Collection`/`Drop`), Season
-    staying optional and never affecting mapping confidence, and Category
-    alias variants (`Product Group`, `Line`).
+    staying optional and never affecting mapping confidence, Category
+    alias variants (`Product Group`, `Line`), and Colour Code column
+    auto-detection (including aliases like `Color Code`/`Shade Code`),
+    staying optional like Season - plus a dedicated regression test proving
+    a "Colour Code" header is never mistaken for the Colour (name) column,
+    since "colour code" contains "colour" as a substring.
 - Quick Search (`imageSearch.test.ts`, 11 tests): query-variation generation
   and de-dupe; real width/height decoding from an in-memory `sharp`-generated
   image; dominant-colour extraction; hex parsing; RGB distance; stock-photo
@@ -430,11 +445,17 @@ every variable below is an optional tuning knob:
   was just wrong). `selfridges.com` still came back 403 even with the full
   browser header set. See §1b's status table and §7 for the fix applied
   (`hugoboss.com`'s `productUrlPattern`), the new best-effort URL guesses
-  for the three 404s, and the honest read on `selfridges.com`. **None of
-  these changes have been re-verified live yet** - re-run
-  `npm run smoke:sites -w server -- <styleCode> [colour] [category]` (or
-  the standalone version) from a machine with real internet access to
-  confirm before trusting this in production.
+  for the three 404s, and the honest read on `selfridges.com`. **The code
+  fix is in (`productUrlPattern` now requires a real numeric product id
+  before `.html`) and covered by a unit test
+  (`hugoboss.com's productUrlPattern excludes category/listing pages but
+  keeps real product pages`), but it has NOT been re-verified against the
+  live, current hugoboss.com site since the fix was made** - that requires
+  a real network run from a machine with internet access (this sandbox
+  still can't reach it). Re-run
+  `npm run smoke:sites -w server -- <styleCode> [colourName] [colourCode]`
+  (or the standalone version) to confirm before trusting this in
+  production.
 
 ---
 
@@ -505,14 +526,16 @@ every variable below is an optional tuning knob:
   source link and evidence are still correct and Approve will still work.
 - **Other decisions worth knowing about:**
   - Category was already a required, existing column before Season was
-    added in an earlier session; only Season is actually new. Likewise
-    there's a single `Colour` field (name only, e.g. "Black"), not separate
-    colour-code/colour-name fields - the PDF swatch is derived directly from
-    that name via pdfkit's own colour-name resolver (checked explicitly,
-    since pdfkit silently no-ops rather than throwing on a name it doesn't
-    recognize - see the `drawColourSwatch` comment in `pdfGenerator.ts`),
-    falling back to a neutral grey for compound names it doesn't recognize
-    (e.g. "Dark Olive Green").
+    added in an earlier session; only Season is actually new there. Colour
+    now has two distinct, separately-detected fields: `Colour` (the name,
+    e.g. "Black" - required) and the newer, optional `Colour Code` (a
+    distinct internal code, e.g. "009" - used only as query-escalation
+    attempt 3, see §1b; never shown as a colour swatch). The PDF swatch is
+    still derived from the Colour *name* via pdfkit's own colour-name
+    resolver (checked explicitly, since pdfkit silently no-ops rather than
+    throwing on a name it doesn't recognize - see the `drawColourSwatch`
+    comment in `pdfGenerator.ts`), falling back to a neutral grey for
+    compound names it doesn't recognize (e.g. "Dark Olive Green").
   - Season sorting within a category group is a plain lexical string sort
     (e.g. `AW24` before `SS24`), not a business-specific chronological
     season calendar - swap in a real comparator if your season codes need
@@ -552,7 +575,7 @@ server/src/
       index.ts                runSiteSearch: fans a query out to every adapter
       sites/
         configs.ts             the 5 target retailers' search URL builders
-        index.ts                builds + exports the 9 SearchProvider adapters
+        index.ts                builds + exports the 5 SearchProvider adapters
         fixtures/               hand-built sample HTML used by the tests
     robotsCheck.ts / pageFetcher.ts   robots.txt-respecting page fetch + image extraction
     matching.ts / verification.ts / sourceTier.ts   evidence + scoring engine (unchanged)

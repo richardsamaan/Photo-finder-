@@ -57,10 +57,11 @@ export const products = sqliteTable(
     rowNumber: integer("row_number").notNull(),
     styleCode: text("style_code").notNull(),
     colour: text("colour").notNull(),
+    colourCode: text("colour_code"),
     category: text("category").notNull(),
     season: text("season"),
-    // Which escalating search attempt (1 = Style Code, 2 = +Colour, 3 =
-    // +Category) produced this product's current result - purely
+    // Which escalating search attempt (1 = Style Code, 2 = +Colour Name, 3 =
+    // +Colour Code) produced this product's current result - purely
     // informational, see services/productSearch.ts.
     searchPhase: integer("search_phase").notNull().default(0),
     status: text("status", {

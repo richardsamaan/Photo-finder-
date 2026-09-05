@@ -31,6 +31,7 @@ importRouter.post("/upload", uploadSpreadsheet.single("file"), (req, res) => {
   const preview = sheet.rows.slice(0, 20).map((row) => ({
     styleCode: mapping.styleCode ? row[mapping.styleCode] : "",
     colour: mapping.colour ? row[mapping.colour] : "",
+    colourCode: mapping.colourCode ? row[mapping.colourCode] : "",
     category: mapping.category ? row[mapping.category] : "",
     season: mapping.season ? row[mapping.season] : "",
   }));
@@ -53,6 +54,7 @@ importRouter.post("/upload", uploadSpreadsheet.single("file"), (req, res) => {
 const mappingSchema = z.object({
   styleCode: z.string().min(1),
   colour: z.string().min(1),
+  colourCode: z.string().optional(), // optional column - "" or omitted means "not mapped"
   category: z.string().min(1),
   season: z.string().optional(), // optional column - "" or omitted means "not mapped"
 });
@@ -70,7 +72,13 @@ importRouter.post("/:token/preview", (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Invalid column mapping." });
   const mapping = parsed.data;
 
-  for (const col of [mapping.styleCode, mapping.colour, mapping.category, ...(mapping.season ? [mapping.season] : [])]) {
+  for (const col of [
+    mapping.styleCode,
+    mapping.colour,
+    mapping.category,
+    ...(mapping.colourCode ? [mapping.colourCode] : []),
+    ...(mapping.season ? [mapping.season] : []),
+  ]) {
     if (!pending.headers.includes(col)) {
       return res.status(400).json({ error: `Column "${col}" not found in file headers.` });
     }
@@ -79,6 +87,7 @@ importRouter.post("/:token/preview", (req, res) => {
   const preview = pending.rows.slice(0, 20).map((row) => ({
     styleCode: row[mapping.styleCode],
     colour: row[mapping.colour],
+    colourCode: mapping.colourCode ? row[mapping.colourCode] : "",
     category: row[mapping.category],
     season: mapping.season ? row[mapping.season] : "",
   }));
@@ -112,7 +121,13 @@ importRouter.post("/:token/confirm", (req, res) => {
     return res.status(400).json({ error: "An official domain is required for this source-domain filter mode." });
   }
 
-  for (const col of [mapping.styleCode, mapping.colour, mapping.category, ...(mapping.season ? [mapping.season] : [])]) {
+  for (const col of [
+    mapping.styleCode,
+    mapping.colour,
+    mapping.category,
+    ...(mapping.colourCode ? [mapping.colourCode] : []),
+    ...(mapping.season ? [mapping.season] : []),
+  ]) {
     if (!pending.headers.includes(col)) {
       return res.status(400).json({ error: `Column "${col}" not found in file headers.` });
     }
@@ -163,6 +178,7 @@ importRouter.post("/:token/confirm", (req, res) => {
           rowNumber: idx + 1,
           styleCode: row[mapping.styleCode].trim(),
           colour: row[mapping.colour].trim(),
+          colourCode: mapping.colourCode ? row[mapping.colourCode]?.trim() || null : null,
           category: row[mapping.category].trim(),
           season: mapping.season ? row[mapping.season]?.trim() || null : null,
           status: "pending",

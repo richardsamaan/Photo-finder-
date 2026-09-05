@@ -48,7 +48,20 @@ const STYLE_CODE_ALIASES = [
   "style ref",
 ];
 
-const COLOUR_ALIASES = ["colour", "color", "colourway", "shade"];
+const COLOUR_ALIASES = ["colour name", "color name", "colour", "color", "colourway", "shade"];
+
+// Checked before COLOUR_ALIASES and excluded from its candidates (see
+// detectColumns) - "colour code" contains "colour" as a substring, so
+// without that exclusion the colour-name detector's fallback "contains"
+// match could grab the code column instead of (or as well as) the name one.
+const COLOUR_CODE_ALIASES = [
+  "colour code",
+  "color code",
+  "colourway code",
+  "colour no",
+  "color no",
+  "shade code",
+];
 
 const CATEGORY_ALIASES = [
   "category",
@@ -73,6 +86,8 @@ const SEASON_ALIASES = [
 export interface ColumnMapping {
   styleCode: string | null;
   colour: string | null;
+  /** Optional - does not affect `confident`. */
+  colourCode: string | null;
   category: string | null;
   /** Optional - does not affect `confident`. */
   season: string | null;
@@ -101,13 +116,19 @@ function findBestMatch(headers: string[], aliases: string[]): string | null {
 
 export function detectColumns(headers: string[]): ColumnMapping {
   const styleCode = findBestMatch(headers, STYLE_CODE_ALIASES);
-  const colour = findBestMatch(headers, COLOUR_ALIASES);
+  // Detected first and excluded from the colour-name candidates below, so
+  // a "Colour Code" column can never be mistaken for the colour-name one.
+  const colourCode = findBestMatch(headers, COLOUR_CODE_ALIASES);
+  const colour = findBestMatch(
+    headers.filter((h) => h !== colourCode),
+    COLOUR_ALIASES
+  );
   const category = findBestMatch(headers, CATEGORY_ALIASES);
   const season = findBestMatch(headers, SEASON_ALIASES);
 
   // styleCode/colour/category remain required for a "confident" auto-mapping;
-  // season is an optional column and never blocks that.
+  // colourCode and season are optional columns and never block that.
   const confident = Boolean(styleCode && colour && category);
 
-  return { styleCode, colour, category, season, confident };
+  return { styleCode, colour, colourCode, category, season, confident };
 }

@@ -3,13 +3,13 @@
  * Manual, live smoke test for the direct-site-search adapters.
  *
  * NOT part of the automated test suite (npm test only picks up
- * src/**\/*.test.ts) - this script makes real HTTP requests to all 5
+ * src/**\/*.test.ts) - this script makes real HTTP requests to real
  * retailer domains and is meant to be run by a human, on a machine with
  * real internet access, after changing a site adapter's URL pattern or
  * extraction logic.
  *
  * Why this exists: the sandbox this project has been developed in has no
- * outbound internet access, so none of the 5 site adapters' URL patterns or
+ * outbound internet access, so none of the site adapters' URL patterns or
  * HTML-parsing heuristics could be verified against the live, current
  * sites (see sites/configs.ts and the README for details). Run this after
  * any adapter change, from an environment with real network access, before
@@ -25,67 +25,98 @@
  * cheerio, no native deps).
  *
  * Usage:
- *   npx tsx scripts/smokeTestSites.ts <styleCode> [colourName] [category]
- *   npm run smoke:sites -- <styleCode> [colourName] [category]
+ *   npx tsx scripts/smokeTestSites.ts <styleCode> [colourName] [colourCode]
+ *   npm run smoke:sites -w server -- <styleCode> [colourName] [colourCode]
  *
- * Example:
- *   npx tsx scripts/smokeTestSites.ts 50512345 Black "T-Shirt"
+ * Optional env var:
+ *   SITES=hugoboss.com,farfetch.com   restrict to just these domains
+ *
+ * Example (all sites):
+ *   npx tsx scripts/smokeTestSites.ts 50512345 Black 009
+ * Example (just two confirmed-reachable sites):
+ *   SITES=hugoboss.com,farfetch.com npx tsx scripts/smokeTestSites.ts 50469055 Black 009
  */
 import { SITE_ADAPTERS } from "../src/services/searchProviders/sites/index.js";
-import { runSiteSearch } from "../src/services/searchProviders/index.js";
+import { runSiteSearch, getSiteHealthSnapshot } from "../src/services/searchProviders/index.js";
 import { fetchProductPage } from "../src/services/pageFetcher.js";
 import { buildEscalatingQueries } from "../src/services/queryBuilder.js";
 
+const ATTEMPT_LABELS = ["Style Code alone", "+ Colour Name", "+ Colour Code"];
+
 async function main() {
-  const [styleCode, colour = "", category = ""] = process.argv.slice(2);
+  const [styleCode, colour = "", colourCode = ""] = process.argv.slice(2);
   if (!styleCode) {
-    console.error("Usage: tsx scripts/smokeTestSites.ts <styleCode> [colourName] [category]");
+    console.error("Usage: tsx scripts/smokeTestSites.ts <styleCode> [colourName] [colourCode]");
+    console.error('Example: tsx scripts/smokeTestSites.ts 50469055 Black 009');
     process.exit(1);
   }
 
-  console.log(`Smoke-testing ${SITE_ADAPTERS.length} site adapters for: styleCode=${styleCode} colour=${colour} category=${category}`);
-  console.log("This makes REAL requests to real retailer sites. Be polite - don't loop this.\n");
-
-  const queries = buildEscalatingQueries({ styleCode, colour, category });
-  console.log(`Escalating query attempts that would be tried: ${JSON.stringify(queries)}\n`);
-
-  const query = queries[0];
-  const { results } = await runSiteSearch(query);
-
-  const bySite = new Map<string, typeof results>();
-  for (const r of results) {
-    const list = bySite.get(r.domain) ?? [];
-    list.push(r);
-    bySite.set(r.domain, list);
+  const onlySites = process.env.SITES?.split(",").map((s) => s.trim()).filter(Boolean);
+  const adapters = onlySites ? SITE_ADAPTERS.filter((a) => onlySites.includes(a.name)) : SITE_ADAPTERS;
+  if (adapters.length === 0) {
+    console.error(`No matching site adapters for SITES=${process.env.SITES}. Available: ${SITE_ADAPTERS.map((a) => a.name).join(", ")}`);
+    process.exit(1);
   }
 
-  for (const adapter of SITE_ADAPTERS) {
-    const siteResults = bySite.get(adapter.name) ?? [];
-    console.log(`--- ${adapter.name} ---`);
-    if (siteResults.length === 0) {
-      console.log("  No candidates found (could be a genuine no-match, a blocked/failed request, or a URL-pattern/selector that needs updating - check server logs / site health for which).");
-      continue;
-    }
-    console.log(`  ${siteResults.length} candidate(s):`);
-    for (const r of siteResults.slice(0, 3)) {
-      console.log(`    - ${r.url}  (title: "${r.title}")`);
-    }
+  console.log(`Smoke-testing ${adapters.length} site adapter(s) for: styleCode=${styleCode} colour=${colour} colourCode=${colourCode}`);
+  console.log(`Sites: ${adapters.map((a) => a.name).join(", ")}`);
+  console.log("This makes REAL requests to real retailer sites. Be polite - don't loop this.\n");
 
-    const first = siteResults[0];
-    const page = await fetchProductPage(first.url);
-    if (!page) {
-      console.log("  Could not fetch the first candidate's product page.");
-    } else if (page.blockedByRobots) {
-      console.log("  First candidate page is disallowed by robots.txt - skipped, as it should be.");
-    } else if (page.images.length === 0) {
-      console.log("  Fetched the product page but found no image - the gallery-selector fallback may need attention for this site.");
-    } else {
-      console.log(`  Product image resolved: ${page.images[0].url} (via ${page.images[0].alt || "generic <img> sweep"})`);
+  const queries = buildEscalatingQueries({ styleCode, colour, colourCode });
+  console.log(`Escalating query attempts: ${JSON.stringify(queries)}`);
+  console.log("Runs ALL of these per site (not just attempt 1) - eyeball the results yourself; this is");
+  console.log("still just search/extraction, not the full confidence-scoring pipeline the actual app runs.\n");
+
+  for (const adapter of adapters) {
+    console.log(`=== ${adapter.name} ===`);
+
+    for (const [i, query] of queries.entries()) {
+      console.log(`  [Attempt ${i + 1}: ${ATTEMPT_LABELS[i]}] query="${query}"`);
+      const { results } = await runSiteSearch(query, { adapters: [adapter] });
+
+      if (results.length === 0) {
+        console.log("    No candidates found (could be a genuine no-match, a blocked/failed request, or a URL-pattern/selector that needs updating - check server logs / site health for which).");
+        continue;
+      }
+
+      console.log(`    ${results.length} candidate(s):`);
+      for (const r of results.slice(0, 3)) {
+        console.log(`      - ${r.url}  (title: "${r.title}")`);
+      }
+
+      const first = results[0];
+      const page = await fetchProductPage(first.url);
+      if (!page) {
+        console.log("    Could not fetch the first candidate's product page.");
+      } else if (page.blockedByRobots) {
+        console.log("    First candidate page is disallowed by robots.txt - skipped, as it should be.");
+      } else if (page.images.length === 0) {
+        console.log("    Fetched the product page but found no image - the gallery-selector fallback may need attention for this site.");
+      } else {
+        console.log(`    Product image resolved: ${page.images[0].url} (via ${page.images[0].alt || "generic <img> sweep"})`);
+      }
     }
     console.log("");
   }
 
-  console.log("Done. Compare the above against what you see visiting these sites' search pages yourself in a browser.");
+  // runSiteSearch() swallows individual site errors into an empty result
+  // (so one failing site never aborts the fan-out), which means "0
+  // candidates" above can't tell you WHY. Print the real per-site
+  // success/failure/lastError here, same signal the Job Detail page's
+  // site-health panel shows, so "blocked" vs "wrong URL" vs "genuinely no
+  // results" doesn't require another round-trip to find out.
+  console.log("--- Site health (why each 0-candidate result happened, if it did) ---");
+  const health = getSiteHealthSnapshot();
+  for (const adapter of adapters) {
+    const h = health[adapter.name];
+    if (!h) continue;
+    console.log(
+      `  ${adapter.name}: ${h.succeeded}/${h.attempts} succeeded, ${h.resultsReturned} result(s) returned` +
+        (h.lastError ? ` - lastError: ${h.lastError}` : "")
+    );
+  }
+
+  console.log("\nDone. Compare the above against what you see visiting these sites' search pages yourself in a browser.");
 }
 
 main().catch((err) => {

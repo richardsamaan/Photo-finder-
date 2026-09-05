@@ -15,6 +15,7 @@ export interface ProductRow {
   id: string;
   styleCode: string;
   colour: string;
+  colourCode?: string | null;
   category: string;
 }
 
@@ -25,7 +26,7 @@ export interface SearchOutcome {
   sourceUrl: string | null;
   sourceName: string | null;
   candidates: CandidateScore[];
-  /** Which escalating attempt (1 = Style Code, 2 = +Colour, 3 = +Category) produced this outcome. */
+  /** Which escalating attempt (1 = Style Code, 2 = +Colour Name, 3 = +Colour Code) produced this outcome. */
   attemptsUsed: number;
   errorMessage?: string;
 }
@@ -93,8 +94,8 @@ async function runOneAttempt(
 
 /**
  * Runs the full escalating search -> fetch -> verify pipeline for one
- * product: Style Code alone, then +Colour, then +Category, stopping as soon
- * as a confident match is found. Since there's no external quota to
+ * product: Style Code alone, then +Colour Name, then +Colour Code, stopping
+ * as soon as a confident match is found. Since there's no external quota to
  * conserve, all three attempts can run back-to-back in a single call.
  * Persists search_results + search_history rows and returns the best
  * outcome across whichever attempts ran. Does NOT mutate the product's own

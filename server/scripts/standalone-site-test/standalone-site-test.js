@@ -30,10 +30,15 @@
  *   npm install
  *
  * RUN:
- *   node standalone-site-test.js <styleCode> [colourName] [category]
+ *   node standalone-site-test.js <styleCode> [colourName] [colourCode]
  *
- * EXAMPLE:
- *   node standalone-site-test.js 50464300 "OPEN BLUE" OUTERWEAR
+ * Optional env var:
+ *   SITES=hugoboss.com,farfetch.com   restrict to just these domains
+ *
+ * EXAMPLE (all 5 sites):
+ *   node standalone-site-test.js 50464300 "OPEN BLUE" 042
+ * EXAMPLE (just two confirmed-reachable sites):
+ *   SITES=hugoboss.com,farfetch.com node standalone-site-test.js 50469055 Black 009
  *
  * This makes real HTTP requests to real retailer sites - don't loop it.
  */
@@ -148,12 +153,14 @@ async function politeDelay(domain) {
 
 // --- Query escalation (mirrors queryBuilder.ts's buildEscalatingQueries) ---
 
-function buildEscalatingQueries(styleCode, colour, category) {
+function buildEscalatingQueries(styleCode, colour, colourCode) {
   const code = styleCode.trim();
   const col = colour.trim();
-  const cat = category.trim();
+  const colCode = colourCode.trim();
   const attempts = [code, [code, col].filter(Boolean).join(" ")];
-  if (cat) attempts.push([code, col, cat].filter(Boolean).join(" "));
+  // Attempt 3 is Style Code + Colour Code on its own - not combined with
+  // Colour Name - a fresh, narrower attempt in its own right.
+  if (colCode) attempts.push([code, colCode].filter(Boolean).join(" "));
   return Array.from(new Set(attempts.map((q) => q.replace(/\s+/g, " ").trim()))).filter(Boolean);
 }
 
@@ -379,15 +386,22 @@ async function searchSite(config, query) {
 // --- Main ---
 
 async function main() {
-  const [styleCode, colour = "", category = ""] = process.argv.slice(2);
+  const [styleCode, colour = "", colourCode = ""] = process.argv.slice(2);
   if (!styleCode) {
-    console.error('Usage: node standalone-site-test.js <styleCode> [colourName] [category]');
-    console.error('Example: node standalone-site-test.js 50464300 "OPEN BLUE" OUTERWEAR');
+    console.error('Usage: node standalone-site-test.js <styleCode> [colourName] [colourCode]');
+    console.error('Example: node standalone-site-test.js 50469055 Black 009');
     process.exit(1);
   }
 
-  console.log(`Standalone site test for: styleCode=${styleCode} colour=${colour} category=${category}`);
-  console.log(`Sites (${SITE_CONFIGS.length}): ${SITE_CONFIGS.map((c) => c.domain).join(", ")}`);
+  const onlySites = process.env.SITES?.split(",").map((s) => s.trim()).filter(Boolean);
+  const sites = onlySites ? SITE_CONFIGS.filter((c) => onlySites.includes(c.domain)) : SITE_CONFIGS;
+  if (sites.length === 0) {
+    console.error(`No matching site configs for SITES=${process.env.SITES}. Available: ${SITE_CONFIGS.map((c) => c.domain).join(", ")}`);
+    process.exit(1);
+  }
+
+  console.log(`Standalone site test for: styleCode=${styleCode} colour=${colour} colourCode=${colourCode}`);
+  console.log(`Sites (${sites.length}): ${sites.map((c) => c.domain).join(", ")}`);
   console.log(
     USE_BROWSER_HEADERS
       ? "Header mode: realistic Chrome browser headers (User-Agent, Accept, Accept-Language, Sec-Fetch-*, Referer, etc.) - set BROWSER_UA=0 to compare against this app's normal honest bot identity instead."
@@ -395,21 +409,21 @@ async function main() {
   );
   console.log("This makes REAL requests to real retailer sites. Be polite - don't loop this.\n");
 
-  const queries = buildEscalatingQueries(styleCode, colour, category);
-  const ATTEMPT_LABELS = ["Style Code alone", "+ Colour", "+ Category"];
+  const queries = buildEscalatingQueries(styleCode, colour, colourCode);
+  const ATTEMPT_LABELS = ["Style Code alone", "+ Colour Name", "+ Colour Code"];
   console.log(`Escalating query attempts: ${JSON.stringify(queries)}`);
   console.log(
     "Runs ALL of these per site (not just attempt 1) - a bare style-code query can match the wrong"
   );
   console.log(
-    "department on a site with fuzzy text search; comparing attempts side by side shows whether +Colour/"
+    "department on a site with fuzzy text search; comparing attempts side by side shows whether +Colour"
   );
   console.log(
-    "+Category actually narrows it down. This is still just search/extraction, not the full"
+    "Name/+Colour Code actually narrows it down. This is still just search/extraction, not the full"
   );
   console.log("confidence-scoring pipeline the actual app runs - eyeball the results yourself.\n");
 
-  for (const config of SITE_CONFIGS) {
+  for (const config of sites) {
     console.log(`=== ${config.domain} ===`);
 
     for (const [i, query] of queries.entries()) {

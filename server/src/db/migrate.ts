@@ -139,6 +139,7 @@ export function runMigrations() {
   ensureColumn("jobs", "official_domain", `official_domain TEXT`);
   ensureColumn("jobs", "pause_reason", `pause_reason TEXT`);
   ensureColumn("products", "season", `season TEXT`);
+  ensureColumn("products", "colour_code", `colour_code TEXT`);
   ensureColumn("products", "search_phase", `search_phase INTEGER NOT NULL DEFAULT 0`);
 
   console.log("[db] migrations applied");

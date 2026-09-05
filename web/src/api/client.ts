@@ -99,6 +99,7 @@ export type DomainFilterMode = "none" | "official_only" | "official_plus_allowli
 export interface ColumnMappingInput {
   styleCode: string;
   colour: string;
+  colourCode?: string;
   category: string;
   season?: string;
 }
@@ -115,13 +116,13 @@ export interface ImportUploadResponse {
   filename: string;
   headers: string[];
   totalRows: number;
-  mapping: ColumnMappingInput & { season: string | null; confident: boolean };
-  preview: { styleCode: string; colour: string; category: string; season: string }[];
+  mapping: ColumnMappingInput & { colourCode: string | null; season: string | null; confident: boolean };
+  preview: { styleCode: string; colour: string; colourCode: string; category: string; season: string }[];
   detectedCategories: string[];
 }
 
 export interface ImportPreviewResponse {
-  preview: { styleCode: string; colour: string; category: string; season: string }[];
+  preview: { styleCode: string; colour: string; colourCode: string; category: string; season: string }[];
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -186,6 +187,7 @@ export interface Product {
   rowNumber: number;
   styleCode: string;
   colour: string;
+  colourCode: string | null;
   category: string;
   season: string | null;
   searchPhase: number;
