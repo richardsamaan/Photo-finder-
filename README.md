@@ -75,26 +75,75 @@ simpler and more reliable while it's still unverified against live sites
 
 | Site | Status | Diagnosis | Next step |
 |---|---|---|---|
-| `hugoboss.com` | Search URL works (200) | Bare style-code query matched an unrelated kids'/junior category page, not the product - the URL was being classified as a product page just for ending in `.html`, which lots of non-product pages also do | Fixed: `productUrlPattern` now requires a real numeric product id before the `.html` (`sites/configs.ts`) - **needs a live re-test to confirm** |
-| `farfetch.com` | 404, then 200 after the URL guess was updated | Second live run (200, no longer 404): returned the exact same 3 generic top-nav category links (Clothing/Shoes/Bags-style) for every one of the 3 query attempts - a sign of either the shared extractor being too loose, the search results being client-rendered (never in the raw HTML), or both | Fixed the confirmed part: the shared extraction fallback required only "any digit in the path", so short category ids passed as if they were products - now requires a 4+ digit run, plus a farfetch-specific `productUrlPattern` requiring its real `-item-<digits>.aspx` product-page marker (`sites/configs.ts`). Both smoke-test scripts also now print a raw-page diagnostic (link count + any redirect) so a client-rendered results page is obvious immediately rather than inferred. **Still unverified whether real product links exist in the raw HTML at all - needs a live re-test** |
+| `hugoboss.com` | Search URL reachable (200) over a plain fetch, twice | First run: bare style-code query matched an unrelated kids'/junior category page (fixed - see `productUrlPattern` below). Second run, with that fix in place: still matched the *wrong product* - a fuzzy/loose text-relevance match, not the exact style code. That's not a URL or extraction bug; it points at the site's own search ranking, or content a plain fetch still can't see | Moved to a real headless browser (`useBrowser: true`, `createBrowserSiteAdapter.ts`) instead of another URL/pattern guess - see the Playwright write-up below. **Still needs a live re-test to confirm the browser-driven version returns the correct product** |
+| `farfetch.com` | 404, then 200 after the URL guess was updated | Second live run (200, no longer 404): returned the exact same 3 generic top-nav category links (Clothing/Shoes/Bags-style) for every one of the 3 query attempts, regardless of what was searched - most likely because real results only render via client-side JS a plain fetch never executes (a shared extraction bug made this worse too - see §7 - but doesn't explain identical results across 3 different queries by itself) | Moved to a real headless browser (`useBrowser: true`) for the same reason as hugoboss.com - a live run also showed Farfetch can redirect straight to a single matching product page instead of a listing page, which `createBrowserSiteAdapter.ts` handles as its own case. **Still needs a live re-test to confirm** |
 | `mrporter.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/en-us/search?keyword=`) - **still unverified, needs a live re-test** |
 | `endclothing.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/search?q=`), dropping the assumed Magento `/catalogsearch/result/` path - **still unverified, needs a live re-test** |
-| `selfridges.com` | Still 403 with realistic browser headers | Headers alone didn't flip it (unlike hugoboss.com) - consistent with heavier bot management (TLS fingerprinting and/or a JS challenge) that no plain HTTP client can satisfy | No code fix possible without live access to inspect the response; see the "what would it take" discussion below |
+| `selfridges.com` | Still 403 with realistic browser headers | Headers alone didn't flip it (unlike hugoboss.com) - consistent with heavier bot management (TLS fingerprinting and/or a JS challenge) that no plain HTTP client can satisfy | Not yet moved to the headless-browser approach - a real browser's genuine TLS/JS fingerprint might get further here too, but that's a separate, unconfirmed hypothesis from hugoboss.com/farfetch.com's (client-side-rendered results, not bot-management blocking a plain fetch); worth trying only after confirming the other two work |
 
-The single fastest way to nail the three 404s exactly: visit each site in a
-real browser, use its own search box, and copy the resulting URL back -
-far more reliable than another round of blind guessing.
+The single fastest way to nail the two remaining 404s exactly: visit each
+site in a real browser, use its own search box, and copy the resulting URL
+back - far more reliable than another round of blind guessing.
+
+### Real headless browser for hugoboss.com and farfetch.com
+
+Live testing (from a user's own machine, real internet access) established
+that a plain HTTP fetch of these two sites' search pages does not return
+real, accurate results, for two different-looking but plausibly related
+reasons: hugoboss.com returned a wrong product (fuzzy text-relevance match,
+not the exact style code), and farfetch.com returned the same generic
+navigation links regardless of query. The working theory for both: their
+real search results only render via client-side JavaScript, which a plain
+`fetch()` never executes - it only ever sees the pre-JS initial HTML.
+
+`hugoboss.com` and `farfetch.com` (`useBrowser: true` in `sites/configs.ts`)
+now go through **Playwright** driving a real, headless (invisible) Chromium
+browser instead (`services/searchProviders/createBrowserSiteAdapter.ts`) -
+navigate to the real search URL, wait for the page's own network activity to
+settle (`networkidle`, a generic proxy for "probably done rendering" with no
+site-specific knowledge needed), then read the fully-rendered page. Both
+outcomes a live run showed are handled: an ordinary results-listing page
+(scanned for candidate links, same `extractProductCandidates.ts` as every
+other site), or the browser being redirected straight to a single matching
+product page when the query has a unique hit (detected by checking whether
+the page's final URL already looks like a product page, and treating it as
+the one candidate instead of scanning it for more links). Playwright is
+free and open-source - no API key, account, or subscription - but it is
+heavier and slower than a plain fetch: a real page load, not one HTTP
+request, and a one-time ~300MB Chromium download (`npx playwright install
+chromium`, see §3). The other 3 sites (`mrporter.com`, `selfridges.com`,
+`endclothing.com`) are unaffected - still a plain fetch, still no browser
+download needed for them specifically.
+
+The rest of the search pipeline is unchanged and layered on top exactly as
+before: the same 3-step escalation (§1b below), the same per-domain
+politeness delay, and the same per-site health tracking all apply to
+`hugoboss.com`/`farfetch.com` too - only "how do we get the page's HTML"
+is different from the other 3 sites. The one deliberate policy call: the
+main app still sends its honest, self-identifying bot User-Agent
+(`ProductImageFinderBot/1.0`) inside the real browser context, rather than
+Playwright's own default Chrome UA string - the browser *engine* underneath
+is unavoidably a genuine Chromium once you choose this approach, but the
+UA string it presents stays the project's normal honest identity, not a
+spoofed one. **This has not yet been re-verified against the live sites
+since being built** (this sandbox still has no outbound internet access) -
+see §6 for exactly what could and couldn't be tested from here.
 
 - **Per-site adapters** (`services/searchProviders/sites/`): each retailer
   gets a `SearchProvider`-conforming adapter (the same interface the app's
-  original API-key-based providers used - only the data source changed) built
-  via a shared factory (`createSiteAdapter.ts`) so the fetch/retry/bot-check
-  plumbing is written once. Each adapter builds that site's own search URL,
-  fetches the results page, and extracts candidate product-page links
-  (`extractProductCandidates.ts` - a generic, domain-scoped anchor-tag parser,
-  not brittle per-site CSS classes). Every candidate then goes through the
-  **same, unchanged verification/matching engine** (`verification.ts`,
-  `matching.ts`) regardless of which of the 5 sites it came from.
+  original API-key-based providers used - only the data source changed),
+  built via one of two shared factories so the fetch/retry/bot-check
+  plumbing is written once per approach, not once per site:
+  `createSiteAdapter.ts` (plain HTTP fetch - `mrporter.com`, `selfridges.com`,
+  `endclothing.com`) or `createBrowserSiteAdapter.ts` (real headless browser
+  - `hugoboss.com`, `farfetch.com`, see above). Each adapter builds that
+  site's own search URL, fetches/renders the results page, and extracts
+  candidate product-page links (`extractProductCandidates.ts` - a generic,
+  domain-scoped anchor-tag parser, not brittle per-site CSS classes,
+  applied identically to a plain-fetched or browser-rendered page). Every
+  candidate then goes through the **same, unchanged verification/matching
+  engine** (`verification.ts`, `matching.ts`) regardless of which of the 5
+  sites it came from, or which of the two factories built its adapter.
 - **Image extraction** (`services/pageFetcher.ts`): once a candidate product
   page is fetched, the primary image is resolved through a priority chain -
   `og:image` first, then schema.org JSON-LD `Product.image`, then a handful
@@ -141,45 +190,58 @@ far more reliable than another round of blind guessing.
 > **This sandbox has no outbound internet access** (documented in every
 > session on this project - only the npm registry is reachable through its
 > proxy), so **none of the 5 adapters' URL patterns or extraction heuristics
-> could be verified against the live, current sites.** They were built
-> against general, best-effort knowledge of each retailer's typical
-> commerce-platform conventions - see `sites/configs.ts` for exactly which
-> parts are unverified, and run `npm run smoke:sites -w server -- <styleCode>
-> [colourName] [colourCode]` (from a machine with real internet access) before
-> trusting this in production. See §6 for what *was* verified automatically.
+> could be verified against the live, current sites, and the new
+> headless-browser adapters for hugoboss.com/farfetch.com have never been
+> run against the real internet either.** They were built against general,
+> best-effort knowledge of each retailer's typical commerce-platform
+> conventions plus the specific live-test findings above - see
+> `sites/configs.ts` for exactly which parts are unverified, and run
+> `npm run smoke:sites -w server -- <styleCode> [colourName] [colourCode]`
+> (from a machine with real internet access) before trusting this in
+> production. See §6 for what *was* verified automatically.
 >
 > **No compiler on your machine?** `npm run smoke:sites` needs the full
 > server workspace installed, including `better-sqlite3` and `sharp` -
 > both native/compiled addons that need a C++ toolchain (+ Python) to build
 > from source when no prebuilt binary matches your platform, which can fail
 > `npm install` outright on some Windows machines. For exactly that case,
-> `server/scripts/standalone-site-test/` is a fully separate, dependency-light
-> version of the same search+extraction smoke test - no database, no
-> Express, no confidence-scoring engine, and its only npm dependency is
-> `cheerio` (pure JavaScript, nothing to compile):
+> `server/scripts/standalone-site-test/` is a fully separate version of the
+> same search+extraction smoke test with its own tiny `package.json` - no
+> database, no Express, no confidence-scoring engine, and still no C++
+> toolchain needed for its own dependencies (`cheerio` + `playwright`,
+> mirroring the main app's two-sites-go-through-a-browser split):
 > ```
 > cd server/scripts/standalone-site-test
 > npm install
+> npx playwright install chromium   # one-time, ~300MB - needed for
+>                                    # hugoboss.com/farfetch.com only
 > node standalone-site-test.js <styleCode> [colourName] [colourCode]
 > ```
 > Add `SITES=hugoboss.com,farfetch.com` before either smoke-test command
 > (the workspace version too) to restrict the run to just those domains.
-> By default it sends a realistic Chrome header set (User-Agent, Accept,
-> Accept-Language, Sec-Fetch-*, Referer on the product-page follow-up) -
-> not just this app's normal honest bot identity - specifically to help
-> answer "is a missing browser fingerprint what's blocking this," since a
-> non-browser-shaped request is an easy, common reason for a 403 that has
-> nothing to do with URL patterns or extraction logic. Set `BROWSER_UA=0`
-> to compare against the honest-bot identity the rest of this app uses.
-> Headers alone won't get past everything, though: sites running
-> Akamai/Cloudflare/PerimeterX/DataDome-style bot management commonly also
-> fingerprint the TLS handshake itself (JA3/JA4) and/or require executing a
-> JS challenge - neither of which a plain HTTP client, however well-headered,
-> can satisfy. If a site still blocks with realistic headers, the next step
-> up is a real headless browser (Playwright/Puppeteer driving actual
-> Chromium) instead of a raw HTTP client - a meaningfully heavier
-> dependency (a full browser binary) that this project has deliberately
-> avoided so far.
+> Expect hugoboss.com/farfetch.com to take noticeably longer per query than
+> before - a real headless browser has to load and run each page's own JS,
+> not just complete one HTTP request. `mrporter.com`/`selfridges.com`/
+> `endclothing.com` are unaffected (still a plain fetch) and don't need the
+> browser download at all.
+>
+> By default the plain-fetch sites go through a realistic Chrome header set
+> (User-Agent, Accept, Accept-Language, Sec-Fetch-*, Referer on the
+> product-page follow-up) - not just this app's normal honest bot identity -
+> specifically to help answer "is a missing browser fingerprint what's
+> blocking this." Set `BROWSER_UA=0` to compare against the honest-bot
+> identity the rest of this app uses instead (this also controls whether
+> the two browser-driven sites present Playwright's own genuine Chrome UA,
+> the default, or the same honest bot string via a UA override - see the
+> Playwright write-up above). Headers alone won't get a plain HTTP client
+> past everything, though: sites running Akamai/Cloudflare/PerimeterX/
+> DataDome-style bot management commonly also fingerprint the TLS handshake
+> itself (JA3/JA4) and/or require executing a JS challenge - neither of
+> which a plain HTTP client, however well-headered, can satisfy. That's
+> exactly the gap a real headless browser (now used for hugoboss.com/
+> farfetch.com, see above) closes; `selfridges.com`'s continued 403 despite
+> realistic headers is the strongest remaining candidate for the same
+> treatment, not yet attempted (see §7).
 
 ---
 
@@ -263,8 +325,17 @@ git clone <this-repo>
 cd Photo-finder-
 cp .env.example .env      # then edit .env - see §4 (optional, sane defaults ship)
 npm install --workspaces  # installs server + web deps
+npx playwright install chromium -w server  # one-time, ~300MB - see §1b
 npm run db:push           # creates the SQLite DB and tables
 ```
+
+The Playwright browser download is needed because hugoboss.com and
+farfetch.com's search results are fetched via a real headless Chromium, not
+a plain HTTP request - see §1b. It's still free (no API key/account/
+subscription), just a one-time download instead of a build step. Skipping
+it doesn't break anything else (`npm run dev`/`build`/the other 3 sites all
+work fine without it) - only those two sites' search, and the
+`createBrowserSiteAdapter.test.ts` part of `npm test`, need it.
 
 ### Run in development
 
@@ -302,7 +373,9 @@ every variable below is an optional tuning knob:
 | `SEARCH_CONCURRENCY` | no (default 3) | Parallel products processed at once |
 | `SITE_SEARCH_DELAY_MS` | no (default 1500) | Minimum gap between two requests to the *same* retailer site (politeness, not cost) |
 | `SITE_SEARCH_MAX_RETRIES` | no (default 1) | Retries per site fetch on a network error |
-| `FETCH_TIMEOUT_MS` | no (default 12000) | Timeout for any single outbound HTTP request |
+| `FETCH_TIMEOUT_MS` | no (default 12000) | Timeout for any single outbound HTTP request (plain-fetch sites) |
+| `BROWSER_NAV_TIMEOUT_MS` | no (default 20000) | Page-load timeout for the headless-browser sites (hugoboss.com/farfetch.com) - longer than `FETCH_TIMEOUT_MS` since a real page load is slower than one HTTP request |
+| `CHROMIUM_EXECUTABLE_PATH` | no | Custom Chromium binary path override, instead of Playwright's own downloaded browser - only needed for special environments (e.g. a Docker image with a system Chromium already installed) |
 | `MAX_UPLOAD_MB` / `MAX_IMAGE_MB` | no | Upload size limits |
 
 ---
@@ -351,7 +424,7 @@ every variable below is an optional tuning knob:
 
 ## 6. Testing performed
 
-**Automated (103 passing tests, `npm test -w server`):**
+**Automated (107 passing tests, `npm test -w server`):**
 - Direct-site-search adapters (added with this pivot), all using **saved,
   hand-built HTML fixtures - no live network calls in the test suite**:
   - `extractProductCandidates.test.ts` (9 tests): real product tiles are
@@ -369,6 +442,19 @@ every variable below is an optional tuning knob:
     (department-store-like); a zero-results page is not an error; a
     bot-check/CAPTCHA response and a non-OK HTTP status both throw (after
     retrying) rather than fabricating a result.
+  - `createBrowserSiteAdapter.test.ts` (4 tests, **a real headless Chromium
+    against a real local HTTP server** - no live retailer network calls, but
+    not mocked either): waits for a page's own `fetch()`-driven client-side
+    rendering and extracts the real product link only available after that
+    (a plain HTTP fetch, run against the same fixture, would only ever see
+    the pre-JS "Loading..." placeholder - this is the exact gap the
+    hugoboss.com/farfetch.com pivot exists to close); treats a redirect
+    straight to a single product page as one candidate rather than scanning
+    it for more links; the same BLOCKED/404 error differentiation as
+    `createSiteAdapter.test.ts` holds for the browser path too. Needs a
+    one-time `npx playwright install chromium` locally to run (see §3) -
+    without it, this file fails with Playwright's own clear "please run
+    npx playwright install" message, not a confusing crash.
   - `botCheck.test.ts` (5 tests): flags 403/429/503 and common CAPTCHA/block
     page text; does not flag an ordinary 200 response or a legitimate
     "no results found" page.
@@ -435,9 +521,12 @@ every variable below is an optional tuning knob:
 - Previously verified in earlier sessions (unaffected by this pivot):
   full import → mapping → confirm flow; manual image upload → approve →
   PDF/ZIP generation (grid layout, category grouping, Season sort verified
-  separately when that feature was added); Playwright coverage of Dashboard,
-  Import Wizard, Job Detail, Product Review, and the candidate-comparison
-  screen at desktop/tablet/mobile viewports.
+  separately when that feature was added); Playwright *E2E UI test* coverage
+  of Dashboard, Import Wizard, Job Detail, Product Review, and the
+  candidate-comparison screen at desktop/tablet/mobile viewports - a
+  separate, pre-existing use of Playwright from the one introduced in this
+  session (driving a real browser to fetch retailer *search results*, §1b);
+  same library, two unrelated jobs.
 - **Now tested against the real, live internet - by the project owner, from
   their own machine** (this sandbox still can't reach it directly). First
   run, with realistic browser headers: `hugoboss.com` succeeded (200, real
@@ -462,22 +551,46 @@ every variable below is an optional tuning knob:
   `npm run smoke:sites -w server -- <styleCode> [colourName] [colourCode]`
   (or the standalone version) to confirm before trusting this in
   production.
+- **Playwright pivot for hugoboss.com/farfetch.com (this session)**: a
+  second live run (from the project owner's own machine) found the
+  `productUrlPattern` fix above wasn't the whole story - hugoboss.com still
+  matched the wrong product (fuzzy text relevance, not the exact style
+  code), and farfetch.com kept returning the same 3 generic nav links
+  regardless of query. Both were moved to a real headless browser
+  (`createBrowserSiteAdapter.ts`, §1b). What was actually verified here,
+  honestly: `npm install playwright` and Chromium launch/navigation/content-
+  reading work correctly against a **real local HTTP server** this session
+  built for the purpose (`createBrowserSiteAdapter.test.ts`) - including a
+  fixture page whose real content only appears after an in-page `fetch()`
+  call resolves, proving the adapter actually waits for that rather than
+  reading the pre-JS placeholder a plain fetch would be stuck with, plus the
+  redirect-to-single-product-page case and BLOCKED/404 error handling. What
+  was **not** verified: this sandbox's outbound proxy blocks the real
+  hugoboss.com/farfetch.com domains at the connection level regardless of
+  whether the client is `fetch()` or a real browser (confirmed directly -
+  Playwright's own navigation failed with `net::ERR_TUNNEL_CONNECTION_FAILED`
+  against both, the browser-level equivalent of the plain-fetch 403 seen
+  throughout this project), so **whether the browser-driven adapters
+  actually return the correct product for a real style code has not been
+  confirmed from this session** - that needs a live re-test from a machine
+  with real internet access, exactly like every other adapter change here.
 
 ---
 
 ## 7. Known limitations / what still needs verification
 
-- **4 of the 5 site adapters still need a live re-test after their first
-  real-internet run** (see §1b's status table) - `hugoboss.com`'s product-URL
-  pattern was tightened after it let a category page through, and
-  `farfetch.com`/`mrporter.com`/`endclothing.com`'s search URLs were all
-  wrong (404, not blocked) and have been updated to new best-effort
-  guesses. None of the updates could be verified from this session (still
-  no outbound internet access here) - re-run the smoke test to confirm.
-  The per-site health panel on the Job Detail page and the smoke-test
-  scripts' now-differentiated error messages (`BLOCKED` vs `404` vs other
-  non-OK) exist specifically to make this kind of thing easy to spot and
-  diagnose without a round-trip to ask what a status code meant.
+- **All 5 site adapters still need a live re-test after their most recent
+  change** (see §1b's status table) - `hugoboss.com`/`farfetch.com` were
+  moved to a real headless browser (Playwright) after two rounds of
+  plain-fetch fixes didn't produce correct results, and
+  `mrporter.com`/`endclothing.com`'s search URLs were both wrong (404, not
+  blocked) and have been updated to new best-effort guesses. None of the
+  updates could be verified from this session (still no outbound internet
+  access here) - re-run the smoke test to confirm. The per-site health panel
+  on the Job Detail page and the smoke-test scripts' now-differentiated
+  error messages (`BLOCKED` vs `404` vs other non-OK) exist specifically to
+  make this kind of thing easy to spot and diagnose without a round-trip to
+  ask what a status code meant.
 - **A second live run surfaced a real bug in the shared extraction fallback,
   found via `farfetch.com`**: every one of the 3 query attempts returned the
   exact same 3 generic top-nav category links (Clothing/Shoes/Bags-style),
@@ -489,17 +602,19 @@ every variable below is an optional tuning knob:
   independent of the query) was being misread as search results. Fixed for
   every site sharing the fallback by requiring a 4+ digit run instead, plus
   a farfetch-specific `productUrlPattern` requiring its real
-  `-item-<digits>.aspx` product-page marker. **This does not rule out a
-  second, independent possibility that still needs a live check**: if
-  farfetch.com's search results are rendered client-side (via JS, after the
-  initial page load), the raw HTML a plain HTTP fetch sees would never
-  contain real product links at all, regardless of how correct the URL or
-  extraction pattern is - the same category of problem already flagged for
-  `selfridges.com`'s bot protection, just from a different cause. Both
-  smoke-test scripts now print a raw-page diagnostic (total/same-domain
-  link count on the unfiltered page, plus any redirect) specifically so
-  this is visible at a glance on the next live run, instead of requiring
-  another guess-and-check round.
+  `-item-<digits>.aspx` product-page marker. That fix alone turned out not
+  to be the whole story: a follow-up live run still showed the same
+  nav-links-only symptom, confirming the working theory raised at the time -
+  farfetch.com's real search results render via client-side JS a plain HTTP
+  fetch never executes, so its raw HTML may never contain real product
+  links at all, regardless of how correct the URL or extraction pattern is.
+  `farfetch.com` (and `hugoboss.com`, which showed a related but distinct
+  symptom - a wrong product match, not zero results) were moved to a real
+  headless browser for exactly that reason - see the Playwright write-up in
+  §1b. Both smoke-test scripts still print the raw-page diagnostic (total/
+  same-domain link count on the unfiltered page, plus any redirect) added
+  for this - useful context even now, since it shows the gap between the
+  raw pre-JS HTML and what the browser-driven adapter actually reads.
 - Applying that same fix scope: `mrporter.com` and `endclothing.com` share
   the same generic extraction fallback and have not defined their own
   `productUrlPattern`, so they were (and, for whatever residual looseness
@@ -511,29 +626,36 @@ every variable below is an optional tuning knob:
   browser UA fixes: headers alone not moving it is consistent with heavier
   bot management doing TLS fingerprinting (JA3/JA4) and/or a JS challenge,
   neither of which any plain HTTP client (this app's `fetch`-based adapters
-  included) can satisfy, headers or not. Confirming that with certainty
-  would take either inspecting the actual 403 response body for tell-tale
-  markers (an Akamai/PerimeterX/Cloudflare challenge page has a
-  recognizable signature) or trying a real headless browser
-  (Playwright/Puppeteer driving actual Chromium, which has a genuine
-  browser TLS/JS fingerprint) to see if that gets further. The latter is a
-  meaningfully heavier dependency (a full browser binary, slower, more
-  moving parts) that this project has deliberately avoided so far - worth
-  a deliberate decision, not a reflexive add, if `selfridges.com` turns
-  out to need it. If it's not worth that investment, dropping it joins the
-  4 sites already trimmed for the same underlying reason (see §1b).
+  included) can satisfy, headers or not. This project has since adopted a
+  real headless browser (Playwright) for exactly that class of problem on
+  hugoboss.com/farfetch.com (§1b) - `selfridges.com` is the natural next
+  candidate for the same treatment, since a real browser's genuine TLS/JS
+  fingerprint might get further here too, but that's a distinct,
+  **unconfirmed** hypothesis (bot-management blocking, vs. hugoboss.com/
+  farfetch.com's client-side-rendered-results problem) and hasn't been
+  tried - worth a deliberate decision after confirming the other two
+  actually work, not a reflexive extension. If it's not worth that
+  investment, dropping it joins the 4 sites already trimmed for a related
+  reason (see §1b).
 - Direct site search means an honest bot user-agent
   (`ProductImageFinderBot/1.0`, see `lib/httpFetch.ts`) is sent on every
-  request in the main app - by design, this project does not spoof a
-  browser user-agent to evade detection there. Some retailers may
-  rate-limit or block a declared bot more readily than they would a
-  browser; that shows up as a "failed" site in health tracking, not a
-  pipeline crash. The standalone diagnostic script (§1b, above) is the one
-  deliberate exception - it defaults to realistic browser headers
-  specifically to help tell "blocked for lacking a browser fingerprint"
-  apart from "blocked regardless" (TLS fingerprinting, JS challenges), and
-  can be switched to the same honest identity (`BROWSER_UA=0`) for a direct
-  comparison. The main app's policy is unchanged by this.
+  request in the main app, including inside the two sites' real browser
+  context (`createBrowserSiteAdapter.ts` overrides Playwright's own default
+  Chrome UA string with this same honest identity) - by design, this
+  project does not spoof a browser identity to evade detection. The browser
+  *engine* underneath hugoboss.com/farfetch.com's requests is unavoidably a
+  genuine Chromium once that approach is chosen (that's the whole point -
+  a real JS engine, real TLS fingerprint), but the UA string it presents
+  stays the project's normal honest one, not Playwright's default. Some
+  retailers may rate-limit or block a declared bot more readily than they
+  would a browser; that shows up as a "failed" site in health tracking, not
+  a pipeline crash. The standalone diagnostic script (§1b, above) is the
+  one deliberate exception - it defaults to realistic browser headers (and,
+  for the two browser-driven sites, Playwright's own genuine Chrome UA
+  rather than the honest-bot override) specifically to help tell "blocked
+  for lacking a browser fingerprint" apart from "blocked regardless", and
+  can be switched to the same honest identity everywhere (`BROWSER_UA=0`)
+  for a direct comparison. The main app's policy is unchanged by this.
 - `xlsx` (SheetJS) has two known npm-registry advisories (prototype
   pollution / ReDoS) with no npm-published fix at the time of writing; the
   maintainers publish patched builds outside npm. Risk is limited here
@@ -601,15 +723,21 @@ server/src/
     queryBuilder.ts        escalating-attempt query generation per product
     searchProviders/
       types.ts              SearchProvider interface (reused by every adapter)
-      createSiteAdapter.ts   shared fetch/retry/bot-check adapter factory
+      createSiteAdapter.ts   shared plain-fetch/retry/bot-check adapter factory
+      createBrowserSiteAdapter.ts   same, but via a real headless browser
+                             (Playwright) - hugoboss.com/farfetch.com only
       extractProductCandidates.ts   generic search-results-page link parser
+                             (shared by both factories, plain-fetched or
+                             browser-rendered HTML alike)
       botCheck.ts            bot-check/CAPTCHA response detection
       politeness.ts          per-domain minimum request delay
       health.ts               per-site success/failure tracking
       index.ts                runSiteSearch: fans a query out to every adapter
       sites/
         configs.ts             the 5 target retailers' search URL builders
-        index.ts                builds + exports the 5 SearchProvider adapters
+                               (+ which 2 use the browser factory)
+        index.ts                builds + exports the 5 SearchProvider adapters,
+                               routing each to the right factory
         fixtures/               hand-built sample HTML used by the tests
     robotsCheck.ts / pageFetcher.ts   robots.txt-respecting page fetch + image extraction
     matching.ts / verification.ts / sourceTier.ts   evidence + scoring engine (unchanged)
@@ -623,8 +751,10 @@ server/src/
   lib/                    sanitize.ts, validateUrl.ts (SSRF guard), ids.ts, httpFetch.ts
   scripts/
     smokeTestSites.ts       manual, live smoke test for the 5 site adapters (not run by CI)
-    standalone-site-test/    same smoke test, fully standalone - no native deps, no DB/Express,
-                             own package.json (just cheerio) - for machines without a C++ toolchain
+    standalone-site-test/    same smoke test, fully standalone - no native/compiled deps, no
+                             DB/Express, own package.json (cheerio + playwright) - for machines
+                             without a C++ toolchain (Playwright still needs no compiler, just a
+                             one-time browser download - see §3)
 web/src/
   pages/                  Dashboard, ImportWizard, JobDetail, ProductReview
   components/             ProductCard, StatCard, ProgressBar, StatusBadge, Navbar

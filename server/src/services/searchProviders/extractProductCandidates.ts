@@ -66,6 +66,19 @@ export interface ExtractConfig {
   maxCandidates?: number;
 }
 
+/**
+ * "Is this URL path a product page" - the same per-site pattern (or generic
+ * fallback) extractProductCandidates() uses on individual links, exposed
+ * standalone so createBrowserSiteAdapter.ts can apply it to the *whole page*
+ * it ended up on. A real headless browser can be redirected straight to a
+ * single matching product page instead of a search-results listing (seen on
+ * a live farfetch.com run) - this is how that case is told apart from an
+ * ordinary listing page worth scanning for links.
+ */
+export function isProductPath(pathname: string, config: { productUrlPattern?: RegExp }): boolean {
+  return config.productUrlPattern ? config.productUrlPattern.test(pathname) : looksLikeProductPath(pathname.toLowerCase());
+}
+
 function sameSite(hostname: string, domain: string): boolean {
   const h = hostname.toLowerCase().replace(/^www\./, "");
   const d = domain.toLowerCase().replace(/^www\./, "");
@@ -105,10 +118,7 @@ export function extractProductCandidates(
     const path = abs.pathname.toLowerCase();
     if (NON_PRODUCT_PATH_HINTS.some((hint) => path.includes(hint))) return;
 
-    const isProduct = config.productUrlPattern
-      ? config.productUrlPattern.test(abs.pathname)
-      : looksLikeProductPath(path);
-    if (!isProduct) return;
+    if (!isProductPath(abs.pathname, config)) return;
 
     const key = abs.origin + abs.pathname;
     if (seen.has(key)) return;

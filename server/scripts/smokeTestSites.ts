@@ -22,7 +22,19 @@
  * that reason (e.g. on Windows without build tools installed), use
  * scripts/standalone-site-test/ instead - a fully separate copy of this
  * same search+extraction smoke test with its own tiny package.json (just
- * cheerio, no native deps).
+ * cheerio + playwright, no native/compiled deps).
+ *
+ * hugoboss.com and farfetch.com go through a real headless browser
+ * (Playwright/Chromium, see createBrowserSiteAdapter.ts) instead of a plain
+ * HTTP fetch - live testing found a plain fetch doesn't reliably return
+ * real, accurate results for either. That needs a one-time browser
+ * download (~300MB, still free, no API key/account) after `npm install`:
+ *
+ *   npx playwright install chromium
+ *
+ * and makes each search against those two sites noticeably slower (a real
+ * page has to load and run its own JS) than a plain HTTP request - expect
+ * this run to take longer than it used to.
  *
  * Usage:
  *   npx tsx scripts/smokeTestSites.ts <styleCode> [colourName] [colourCode]
@@ -33,7 +45,8 @@
  *
  * Example (all sites):
  *   npx tsx scripts/smokeTestSites.ts 50512345 Black 009
- * Example (just two confirmed-reachable sites):
+ * Example (just two confirmed-reachable sites - now slower, both go through
+ * a real browser page load):
  *   SITES=hugoboss.com,farfetch.com npx tsx scripts/smokeTestSites.ts 50469055 Black 009
  */
 import * as cheerio from "cheerio";
@@ -42,6 +55,7 @@ import { runSiteSearch, getSiteHealthSnapshot } from "../src/services/searchProv
 import { fetchProductPage } from "../src/services/pageFetcher.js";
 import { buildEscalatingQueries } from "../src/services/queryBuilder.js";
 import { fetchWithTimeout } from "../src/lib/httpFetch.js";
+import { closeBrowser } from "../src/services/searchProviders/createBrowserSiteAdapter.js";
 
 const ATTEMPT_LABELS = ["Style Code alone", "+ Colour Name", "+ Colour Code"];
 
@@ -163,7 +177,14 @@ async function main() {
   console.log("\nDone. Compare the above against what you see visiting these sites' search pages yourself in a browser.");
 }
 
-main().catch((err) => {
-  console.error("Smoke test failed:", err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error("Smoke test failed:", err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    // hugoboss.com/farfetch.com's shared headless browser (see
+    // createBrowserSiteAdapter.ts) otherwise keeps this one-shot script's
+    // process alive indefinitely after main() resolves/rejects.
+    await closeBrowser();
+  });

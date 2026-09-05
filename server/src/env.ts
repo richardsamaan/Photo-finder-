@@ -37,6 +37,18 @@ export const env = {
   SITE_SEARCH_DELAY_MS: num("SITE_SEARCH_DELAY_MS", 1500),
   SITE_SEARCH_MAX_RETRIES: num("SITE_SEARCH_MAX_RETRIES", 1),
   FETCH_TIMEOUT_MS: num("FETCH_TIMEOUT_MS", 12000),
+  // Sites whose real search results only render via client-side JS (see
+  // createBrowserSiteAdapter.ts) use a real headless browser instead of a
+  // plain fetch - a full page load is legitimately slower than an HTTP
+  // request, so this gets its own, longer timeout rather than reusing
+  // FETCH_TIMEOUT_MS.
+  BROWSER_NAV_TIMEOUT_MS: num("BROWSER_NAV_TIMEOUT_MS", 20000),
+  // Optional override pointing at a specific Chromium binary instead of
+  // Playwright's own downloaded/managed browser - useful for a Docker image
+  // with a system Chromium already installed, or any environment where the
+  // normal `npx playwright install chromium` download isn't possible.
+  // Leave unset to use Playwright's default (recommended for normal use).
+  CHROMIUM_EXECUTABLE_PATH: process.env.CHROMIUM_EXECUTABLE_PATH || undefined,
   MAX_UPLOAD_MB: num("MAX_UPLOAD_MB", 20),
   MAX_IMAGE_MB: num("MAX_IMAGE_MB", 15),
 

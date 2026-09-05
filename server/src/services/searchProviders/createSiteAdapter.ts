@@ -12,6 +12,14 @@ export interface SiteAdapterConfig {
   /** Optional per-site hint for recognizing a product-page href among search-results links. */
   productUrlPattern?: RegExp;
   maxCandidates?: number;
+  /**
+   * If true, sites/index.ts routes this config to createBrowserSiteAdapter.ts
+   * (a real headless-browser fetch) instead of this plain-HTTP factory.
+   * Ignored here - only read by sites/index.ts - but kept on the shared
+   * config type so sites/configs.ts stays the single source of truth for
+   * every site, regardless of which factory ends up building its adapter.
+   */
+  useBrowser?: boolean;
 }
 
 function sleep(ms: number) {
