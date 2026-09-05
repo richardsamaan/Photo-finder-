@@ -23,18 +23,6 @@ export function incrementProcessed(jobId: string) {
     .run();
 }
 
-/**
- * Recomputes processedProducts from actual product statuses rather than
- * incrementing a counter - safe to call any number of times, which matters
- * for the phase-aware runner where a single item can be attempted again in
- * a later phase (an incrementing counter would double-count it).
- */
-export function recomputeProcessedCount(jobId: string) {
-  const rows = db.select().from(products).where(eq(products.jobId, jobId)).all();
-  const stillPending = rows.filter((r) => ["pending", "queued", "searching"].includes(r.status)).length;
-  touchJob(jobId, { processedProducts: rows.length - stillPending });
-}
-
 export function listProducts(jobId: string, statuses?: string[]) {
   if (statuses && statuses.length > 0) {
     return db

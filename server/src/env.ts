@@ -30,45 +30,27 @@ export const env = {
     ? path.resolve(repoRoot, process.env.STORAGE_DIR)
     : path.join(repoRoot, "storage"),
 
-  // --- Search provider selection ---
-  // One of: google_cse | firecrawl | serpapi | bing | none
-  SEARCH_PROVIDER: (process.env.SEARCH_PROVIDER ?? "none").toLowerCase(),
-
-  GOOGLE_API_KEY: process.env.GOOGLE_API_KEY ?? "",
-  GOOGLE_CSE_ID: process.env.GOOGLE_CSE_ID ?? "",
-
-  FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY ?? "",
-
-  SERPAPI_API_KEY: process.env.SERPAPI_API_KEY ?? "",
-
-  BING_API_KEY: process.env.BING_API_KEY ?? "",
-
   // --- Processing controls ---
-  SEARCH_CONCURRENCY: num("SEARCH_CONCURRENCY", 3),
-  SEARCH_RATE_LIMIT_MS: num("SEARCH_RATE_LIMIT_MS", 600), // min gap between provider requests
-  SEARCH_MAX_RETRIES: num("SEARCH_MAX_RETRIES", 2),
-  // Free-tier providers (e.g. Google Programmable Search) cap real queries per
-  // 24h window (Google CSE: 100/day). Default leaves headroom under that cap
-  // for the odd retried request - see services/quotaGovernor.ts.
-  DAILY_SEARCH_QUOTA: num("DAILY_SEARCH_QUOTA", 95),
+  SEARCH_CONCURRENCY: num("SEARCH_CONCURRENCY", 3), // parallel products processed at once
+  // Minimum gap between two requests to the *same* retailer site (politeness,
+  // not cost - there is no external API/quota in the direct-site-search model).
+  SITE_SEARCH_DELAY_MS: num("SITE_SEARCH_DELAY_MS", 1500),
+  SITE_SEARCH_MAX_RETRIES: num("SITE_SEARCH_MAX_RETRIES", 1),
   FETCH_TIMEOUT_MS: num("FETCH_TIMEOUT_MS", 12000),
+  // Sites whose real search results only render via client-side JS (see
+  // createBrowserSiteAdapter.ts) use a real headless browser instead of a
+  // plain fetch - a full page load is legitimately slower than an HTTP
+  // request, so this gets its own, longer timeout rather than reusing
+  // FETCH_TIMEOUT_MS.
+  BROWSER_NAV_TIMEOUT_MS: num("BROWSER_NAV_TIMEOUT_MS", 20000),
+  // Optional override pointing at a specific Chromium binary instead of
+  // Playwright's own downloaded/managed browser - useful for a Docker image
+  // with a system Chromium already installed, or any environment where the
+  // normal `npx playwright install chromium` download isn't possible.
+  // Leave unset to use Playwright's default (recommended for normal use).
+  CHROMIUM_EXECUTABLE_PATH: process.env.CHROMIUM_EXECUTABLE_PATH || undefined,
   MAX_UPLOAD_MB: num("MAX_UPLOAD_MB", 20),
   MAX_IMAGE_MB: num("MAX_IMAGE_MB", 15),
 
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? "http://localhost:5173",
-};
-
-export const searchProviderConfigured = (): boolean => {
-  switch (env.SEARCH_PROVIDER) {
-    case "google_cse":
-      return Boolean(env.GOOGLE_API_KEY && env.GOOGLE_CSE_ID);
-    case "firecrawl":
-      return Boolean(env.FIRECRAWL_API_KEY);
-    case "serpapi":
-      return Boolean(env.SERPAPI_API_KEY);
-    case "bing":
-      return Boolean(env.BING_API_KEY);
-    default:
-      return false;
-  }
 };

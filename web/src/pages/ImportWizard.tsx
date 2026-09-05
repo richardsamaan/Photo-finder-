@@ -28,7 +28,7 @@ export function ImportWizard() {
   const [dragOver, setDragOver] = useState(false);
 
   const [imported, setImported] = useState<ImportUploadResponse | null>(null);
-  const [mapping, setMapping] = useState({ styleCode: "", colour: "", category: "", season: "" });
+  const [mapping, setMapping] = useState({ styleCode: "", colour: "", colourCode: "", category: "", season: "" });
   const [domainFilterMode, setDomainFilterMode] = useState<DomainFilterMode>("none");
   const [officialDomain, setOfficialDomain] = useState("");
   const [preview, setPreview] = useState<ImportPreviewResponse | null>(null);
@@ -45,6 +45,7 @@ export function ImportWizard() {
       setMapping({
         styleCode: res.mapping.styleCode ?? "",
         colour: res.mapping.colour ?? "",
+        colourCode: res.mapping.colourCode ?? "",
         category: res.mapping.category ?? "",
         season: res.mapping.season ?? "",
       });
@@ -89,6 +90,7 @@ export function ImportWizard() {
     try {
       const res = await api.confirmImport(imported.token, {
         ...mapping,
+        colourCode: mapping.colourCode || undefined,
         season: mapping.season || undefined,
         domainFilterMode,
         officialDomain: domainFilterMode !== "none" ? officialDomain : undefined,
@@ -190,6 +192,21 @@ export function ImportWizard() {
           </label>
         ))}
         <label className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-slate-700">Colour Code (optional)</span>
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white"
+            value={mapping.colourCode}
+            onChange={(e) => setMapping((m) => ({ ...m, colourCode: e.target.value }))}
+          >
+            <option value="">— None —</option>
+            {headers.map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium text-slate-700">Season (optional)</span>
           <select
             className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm bg-white"
@@ -275,6 +292,7 @@ export function ImportWizard() {
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Style Code</th>
                 <th className="text-left px-4 py-2 font-medium">Colour</th>
+                <th className="text-left px-4 py-2 font-medium">Colour Code</th>
                 <th className="text-left px-4 py-2 font-medium">Category</th>
                 <th className="text-left px-4 py-2 font-medium">Season</th>
               </tr>
@@ -284,6 +302,7 @@ export function ImportWizard() {
                 <tr key={i}>
                   <td className="px-4 py-2 whitespace-nowrap">{row.styleCode || <em className="text-slate-300">—</em>}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{row.colour || <em className="text-slate-300">—</em>}</td>
+                  <td className="px-4 py-2 whitespace-nowrap">{row.colourCode || <em className="text-slate-300">—</em>}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{row.category || <em className="text-slate-300">—</em>}</td>
                   <td className="px-4 py-2 whitespace-nowrap">{row.season || <em className="text-slate-300">—</em>}</td>
                 </tr>

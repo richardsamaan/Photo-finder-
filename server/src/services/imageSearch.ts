@@ -1,19 +1,20 @@
 import sharp from "sharp";
 import pLimit from "p-limit";
 import { env } from "../env.js";
-import { domainOf, fetchWithTimeout } from "../lib/httpFetch.js";
+import { fetchWithTimeout } from "../lib/httpFetch.js";
 import { assertSafeExternalUrl } from "../lib/validateUrl.js";
 import { buildQuickSearchQueries } from "./queryBuilder.js";
-import { getActiveProvider, isSearchConfigured, runSearch } from "./searchProviders/index.js";
-import { ProviderNotConfiguredError } from "./searchProviders/types.js";
-import { searchImages as googleSearchImages } from "./searchProviders/googleCse.js";
-import { searchImages as bingSearchImages } from "./searchProviders/bing.js";
-import type { RawImageResult } from "./searchProviders/imageTypes.js";
+import { runSiteSearch } from "./searchProviders/index.js";
+import { fetchProductPage } from "./pageFetcher.js";
 
 // Single-item "quick search" tool: broader/looser than the catalog pipeline
 // (no style code to anchor on), so it leans on pooling many candidates
 // across query variations and filtering/ranking by resolution + colour
-// match instead of page-evidence verification.
+// match instead of page-evidence verification. Runs on the same direct
+// on-site search adapters as the main pipeline (searchProviders/sites/) -
+// there is no separate general-web-search or dedicated image-search API
+// anymore, so every candidate's image comes from actually fetching its
+// product page (fetchProductPage), same as the catalog pipeline does.
 
 export const MIN_SHORT_SIDE_PX = 800;
 const CANDIDATE_POOL_TARGET = 40; // "fetch 30-50, then narrow down"
@@ -59,64 +60,41 @@ export function isLikelyStockOrWatermarked(imageUrl: string, domain: string): bo
   return false;
 }
 
-function toCandidate(img: RawImageResult): ImageCandidate {
-  return {
-    imageUrl: img.imageUrl,
-    sourceUrl: img.sourceUrl,
-    title: img.title,
-    domain: img.domain,
-    width: img.width,
-    height: img.height,
-  };
-}
+const PAGE_FETCH_CONCURRENCY = 6;
 
 export async function quickImageSearch(params: QuickSearchParams): Promise<ImageCandidate[]> {
   const query = params.query.trim();
   if (!query) throw new Error("Query is required.");
 
-  if (!isSearchConfigured()) {
-    throw new ProviderNotConfiguredError(env.SEARCH_PROVIDER);
-  }
-
-  const provider = getActiveProvider();
   const queries = buildQuickSearchQueries({ query, colourName: params.colourName });
-  const pool = new Map<string, ImageCandidate>();
-
-  const addAll = (imgs: RawImageResult[]) => {
-    for (const img of imgs) {
-      if (!img.imageUrl || pool.has(img.imageUrl)) continue;
-      pool.set(img.imageUrl, toCandidate(img));
-    }
-  };
+  const seenPages = new Set<string>();
+  const pageCandidates: { sourceUrl: string; title: string; domain: string }[] = [];
 
   for (const q of queries) {
-    if (pool.size >= CANDIDATE_POOL_TARGET) break;
-
-    // Dedicated image-search endpoints (when available) return real
-    // width/height directly, avoiding a network probe per candidate.
-    try {
-      if (provider?.name === "google_cse") {
-        addAll(await googleSearchImages(q));
-      } else if (provider?.name === "bing") {
-        addAll(await bingSearchImages(q));
-      }
-    } catch {
-      // Image-search endpoint is a bonus path; fall through to text search.
-    }
-
-    if (pool.size >= CANDIDATE_POOL_TARGET) break;
-
-    const { results } = await runSearch(q);
+    if (pageCandidates.length >= CANDIDATE_POOL_TARGET) break;
+    const { results } = await runSiteSearch(q);
     for (const r of results) {
-      if (!r.imageUrl || pool.has(r.imageUrl)) continue;
-      pool.set(r.imageUrl, {
-        imageUrl: r.imageUrl,
-        sourceUrl: r.url,
-        title: r.title,
-        domain: r.domain || domainOf(r.url),
-      });
+      if (!r.url || seenPages.has(r.url)) continue;
+      seenPages.add(r.url);
+      pageCandidates.push({ sourceUrl: r.url, title: r.title, domain: r.domain });
     }
   }
+
+  // No dedicated image-search API exists anymore (no API keys, anywhere) -
+  // each candidate page has to actually be fetched to find its product
+  // image, the same fetchProductPage() the main catalog pipeline uses.
+  const limit = pLimit(PAGE_FETCH_CONCURRENCY);
+  const pool = new Map<string, ImageCandidate>();
+  await Promise.all(
+    pageCandidates.slice(0, CANDIDATE_POOL_TARGET).map((c) =>
+      limit(async () => {
+        const page = await fetchProductPage(c.sourceUrl);
+        const imageUrl = page?.images?.[0]?.url;
+        if (!imageUrl || pool.has(imageUrl)) return;
+        pool.set(imageUrl, { imageUrl, sourceUrl: c.sourceUrl, title: c.title, domain: c.domain });
+      })
+    )
+  );
 
   let candidates = Array.from(pool.values()).filter(
     (c) => !isLikelyStockOrWatermarked(c.imageUrl, c.domain)

@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import path from "node:path";
 import fs from "node:fs";
-import { env, searchProviderConfigured } from "./env.js";
+import { env } from "./env.js";
 import { runMigrations } from "./db/migrate.js";
 import { importRouter } from "./routes/import.js";
 import { jobsRouter } from "./routes/jobs.js";
@@ -10,7 +10,7 @@ import { productsRouter } from "./routes/products.js";
 import { exportRouter } from "./routes/export.js";
 import { cacheRouter } from "./routes/cache.js";
 import { quickSearchRouter } from "./routes/quickSearch.js";
-import { isSearchConfigured } from "./services/searchProviders/index.js";
+import { SITE_ADAPTERS } from "./services/searchProviders/index.js";
 
 runMigrations();
 
@@ -25,8 +25,9 @@ app.use("/storage/catalog", express.static(catalogStaticDir));
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
-    searchProvider: env.SEARCH_PROVIDER,
-    searchConfigured: isSearchConfigured(),
+    // Direct on-site search needs no API key/config, so it's always
+    // available - the sites actually enabled are what matters now.
+    sites: SITE_ADAPTERS.map((s) => s.name),
   });
 });
 
@@ -57,5 +58,5 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 app.listen(env.PORT, () => {
   console.log(`[server] listening on http://localhost:${env.PORT}`);
-  console.log(`[server] search provider: ${env.SEARCH_PROVIDER} (configured: ${searchProviderConfigured()})`);
+  console.log(`[server] direct on-site search enabled for: ${SITE_ADAPTERS.map((s) => s.name).join(", ")}`);
 });

@@ -111,12 +111,12 @@ const statements = [
     created_at TEXT NOT NULL DEFAULT (current_timestamp),
     updated_at TEXT NOT NULL DEFAULT (current_timestamp)
   )`,
-  `CREATE TABLE IF NOT EXISTS search_quota (
-    id TEXT PRIMARY KEY,
-    window_start TEXT NOT NULL,
-    count INTEGER NOT NULL DEFAULT 0
-  )`,
 ];
+
+// One-time cleanup: `search_quota` backed the daily-quota governor from the
+// now-abandoned API-key-based search design. Direct on-site search has no
+// external quota, so the table (and the concept) is gone.
+const dropStatements = [`DROP TABLE IF EXISTS search_quota`];
 
 // SQLite has no "ADD COLUMN IF NOT EXISTS" - stay idempotent by checking
 // PRAGMA table_info first, same spirit as the "CREATE ... IF NOT EXISTS"
@@ -131,6 +131,7 @@ function ensureColumn(table: string, column: string, columnDdl: string) {
 export function runMigrations() {
   const run = sqlite.transaction(() => {
     for (const stmt of statements) sqlite.exec(stmt);
+    for (const stmt of dropStatements) sqlite.exec(stmt);
   });
   run();
 
@@ -138,6 +139,7 @@ export function runMigrations() {
   ensureColumn("jobs", "official_domain", `official_domain TEXT`);
   ensureColumn("jobs", "pause_reason", `pause_reason TEXT`);
   ensureColumn("products", "season", `season TEXT`);
+  ensureColumn("products", "colour_code", `colour_code TEXT`);
   ensureColumn("products", "search_phase", `search_phase INTEGER NOT NULL DEFAULT 0`);
 
   console.log("[db] migrations applied");

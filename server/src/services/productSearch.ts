@@ -2,21 +2,20 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { products, searchResults, searchHistory, sources } from "../db/schema.js";
 import { newId } from "../lib/ids.js";
-import { buildQueries } from "./queryBuilder.js";
-import { runSearch, isSearchConfigured } from "./searchProviders/index.js";
+import { buildEscalatingQueries } from "./queryBuilder.js";
+import { runSiteSearch } from "./searchProviders/index.js";
 import { fetchProductPage } from "./pageFetcher.js";
 import { scoreCandidate, rankCandidates, classifyConfidence, type CandidateScore } from "./verification.js";
 import { getCachedResult, upsertCacheResult } from "./searchCache.js";
-import { ProviderNotConfiguredError } from "./searchProviders/types.js";
 import { isDomainAllowed, type DomainFilterMode } from "./sourceTier.js";
 
 const MAX_CANDIDATES_TO_VERIFY = 8;
-const MAX_QUERIES_PER_PRODUCT = 4;
 
 export interface ProductRow {
   id: string;
   styleCode: string;
   colour: string;
+  colourCode?: string | null;
   category: string;
 }
 
@@ -27,7 +26,15 @@ export interface SearchOutcome {
   sourceUrl: string | null;
   sourceName: string | null;
   candidates: CandidateScore[];
+  /** Which escalating attempt (1 = Style Code, 2 = +Colour Name, 3 = +Colour Code) produced this outcome. */
+  attemptsUsed: number;
   errorMessage?: string;
+}
+
+export interface SearchOptions {
+  useCache?: boolean;
+  domainFilterMode?: DomainFilterMode;
+  officialDomain?: string | null;
 }
 
 function recordSource(domain: string, tier: string) {
@@ -39,19 +46,61 @@ function recordSource(domain: string, tier: string) {
   }
 }
 
-/**
- * Run the full search -> fetch -> verify pipeline for one product. Persists
- * search_results + search_history rows and returns the ranked outcome. Does
- * NOT mutate the product's own row - callers decide what to write back.
- */
-export interface SearchOptions {
-  useCache?: boolean;
-  /** Number of query variants to try, most-specific first (default 4). */
-  maxQueries?: number;
-  domainFilterMode?: DomainFilterMode;
-  officialDomain?: string | null;
+function isConfidentMatch(status: SearchOutcome["status"]): boolean {
+  return status === "high_confidence" || status === "medium_confidence";
 }
 
+/**
+ * Runs one escalating attempt (a single text query fanned out across every
+ * enabled site adapter) and returns the ranked, verified candidates.
+ */
+async function runOneAttempt(
+  product: ProductRow,
+  query: string,
+  domainFilterMode: DomainFilterMode,
+  officialDomain: string | null | undefined
+): Promise<CandidateScore[]> {
+  const { results } = await runSiteSearch(query, { domainFilterMode, officialDomain });
+
+  db.insert(searchHistory)
+    .values({
+      id: newId("sh"),
+      productId: product.id,
+      query,
+      provider: "site-search",
+      resultCount: results.length,
+      success: true,
+    })
+    .run();
+
+  const seenUrls = new Set<string>();
+  const rawResults = results.filter((r) => {
+    if (!r.url || seenUrls.has(r.url)) return false;
+    seenUrls.add(r.url);
+    return true;
+  });
+
+  const toVerify = rawResults.slice(0, MAX_CANDIDATES_TO_VERIFY);
+  const scored: CandidateScore[] = [];
+  for (const raw of toVerify) {
+    const page = await fetchProductPage(raw.url);
+    const score = scoreCandidate(product, raw, page);
+    scored.push(score);
+    recordSource(score.domain, score.sourceTier);
+  }
+
+  return rankCandidates(scored);
+}
+
+/**
+ * Runs the full escalating search -> fetch -> verify pipeline for one
+ * product: Style Code alone, then +Colour Name, then +Colour Code, stopping
+ * as soon as a confident match is found. Since there's no external quota to
+ * conserve, all three attempts can run back-to-back in a single call.
+ * Persists search_results + search_history rows and returns the best
+ * outcome across whichever attempts ran. Does NOT mutate the product's own
+ * row - callers decide what to write back.
+ */
 export async function searchAndVerifyProduct(
   product: ProductRow,
   opts: SearchOptions = {}
@@ -67,70 +116,25 @@ export async function searchAndVerifyProduct(
         sourceUrl: cached.sourceUrl,
         sourceName: cached.sourceName,
         candidates: cached.candidates,
+        attemptsUsed: 0,
       };
     }
   }
 
-  if (!isSearchConfigured()) {
-    throw new ProviderNotConfiguredError(process.env.SEARCH_PROVIDER ?? "none");
-  }
+  const queries = buildEscalatingQueries(product);
+  const domainFilterMode = opts.domainFilterMode ?? "none";
 
-  const maxQueries = opts.maxQueries ?? MAX_QUERIES_PER_PRODUCT;
-  const queries = buildQueries(product).slice(0, maxQueries);
-  const seenUrls = new Set<string>();
-  let rawResults: { url: string; title: string; snippet: string; domain: string; imageUrl?: string }[] = [];
+  let ranked: CandidateScore[] = [];
+  let attemptsUsed = 0;
 
   for (const query of queries) {
-    const { provider, results, error } = await runSearch(query);
-    db.insert(searchHistory)
-      .values({
-        id: newId("sh"),
-        productId: product.id,
-        query,
-        provider,
-        resultCount: results.length,
-        success: !error,
-        errorMessage: error ?? null,
-      })
-      .run();
-
-    for (const r of results) {
-      if (!r.url || seenUrls.has(r.url)) continue;
-      seenUrls.add(r.url);
-      rawResults.push(r);
-    }
-    if (rawResults.length >= MAX_CANDIDATES_TO_VERIFY * 2) break;
+    attemptsUsed++;
+    ranked = await runOneAttempt(product, query, domainFilterMode, opts.officialDomain);
+    const best = ranked[0];
+    if (best && isConfidentMatch(classifyConfidence(best.confidence))) break;
   }
 
-  const domainFilterMode = opts.domainFilterMode ?? "none";
-  if (domainFilterMode !== "none") {
-    rawResults = rawResults.filter((r) => isDomainAllowed(r.domain, domainFilterMode, opts.officialDomain));
-  }
-
-  if (rawResults.length === 0) {
-    const outcome: SearchOutcome = {
-      status: "not_found",
-      confidence: 0,
-      imageUrl: null,
-      sourceUrl: null,
-      sourceName: null,
-      candidates: [],
-    };
-    upsertCacheResult(product.styleCode, product.colour, outcome);
-    return outcome;
-  }
-
-  const toVerify = rawResults.slice(0, MAX_CANDIDATES_TO_VERIFY);
-  const scored: CandidateScore[] = [];
-  for (const raw of toVerify) {
-    const page = await fetchProductPage(raw.url);
-    const score = scoreCandidate(product, raw, page);
-    scored.push(score);
-    recordSource(score.domain, score.sourceTier);
-  }
-
-  const ranked = rankCandidates(scored);
-  persistCandidates(product.id, ranked, "live");
+  persistCandidates(product.id, ranked, "site-search");
 
   const best = ranked[0];
   const status = best ? classifyConfidence(best.confidence) : "not_found";
@@ -142,6 +146,7 @@ export async function searchAndVerifyProduct(
     sourceUrl: best?.url ?? null,
     sourceName: best?.domain ?? null,
     candidates: ranked,
+    attemptsUsed,
   };
 
   upsertCacheResult(product.styleCode, product.colour, outcome);

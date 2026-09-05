@@ -1,0 +1,28 @@
+<!--
+  Representative fixture: a search-results page whose product tiles are
+  plain anchors but the page also embeds an ItemList/Product JSON-LD block
+  (common on many modern retail platforms, including department-store-style
+  sites like selfridges.com). Hand-built for this test suite; NOT captured
+  from the live site.
+-->
+<!doctype html>
+<html>
+<head>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "url": "https://www.example.com/s/navy-jacket/50567890" }
+      ]
+    }
+  </script>
+</head>
+<body>
+  <div data-testid="product-grid">
+    <a href="/s/navy-jacket/50567890" data-testid="product-card">
+      <img src="/img/50567890.jpg" alt="Navy Jacket" />
+    </a>
+  </div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "standalone-site-test",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Fully isolated smoke test for the 5 site-search adapters - no C++-toolchain/compiled dependencies (unlike the main server workspace's better-sqlite3/sharp), no database, no dependency on the rest of the server app. hugoboss.com and farfetch.com go through a real headless Chromium (Playwright) - no compiler needed for that either, but it does mean a one-time ~300MB browser download; run `npx playwright install chromium` after `npm install` (see the top of standalone-site-test.js). See ../smokeTestSites.ts for the full-app version.",
+  "type": "module",
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "playwright": "^1.63.0"
+  }
+}
