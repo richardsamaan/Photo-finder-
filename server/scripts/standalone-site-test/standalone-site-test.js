@@ -64,6 +64,17 @@ const SITE_CONFIGS = [
   {
     domain: "farfetch.com",
     buildSearchUrl: (q) => `https://www.farfetch.com/search?q=${encodeURIComponent(q)}`,
+    // A live run (2026) returned the exact same 3 generic top-nav category
+    // links (Clothing/Shoes/Bags-style) for every query - partly the shared
+    // extraction fallback being too loose (fixed below, "any digit" ->
+    // "4+ digit run"), plus this farfetch-specific guard: real product
+    // pages are conventionally "<slug>-item-<digits>.aspx" while
+    // category/listing pages are "items.aspx" (plural, no id). Still an
+    // unverified guess - if this still only returns nav links, check
+    // whether farfetch.com's search results are rendered client-side (view
+    // raw page source for the URL above; no product links there at all
+    // means no plain HTTP fetch will ever see them).
+    productUrlPattern: /-item-\d+\.aspx(?:[/?#]|$)/i,
   },
   {
     domain: "mrporter.com",
@@ -238,10 +249,15 @@ const NON_PRODUCT_PATH_HINTS = [
   "/about", "/careers", "/gift-card", "/legal", "/privacy", "/terms", "/newsletter", "/blog",
   "/sitemap", "/faq",
 ];
+// Requires a run of 4+ consecutive digits, not just "any digit anywhere" - a
+// bug found on a live run (2026): farfetch.com's global top-nav category
+// links (short 1-2 digit category ids) were misclassified as product
+// candidates by the old "any digit" check, so every query returned the same
+// 3 generic nav links regardless of what was actually searched.
 function looksLikeProductPath(path) {
   const segments = path.split("/").filter(Boolean);
   if (segments.length < 2) return false;
-  return /\d/.test(path) || /-p-|\/p\/|\/product\/|\/dp\/|\.html$/.test(path);
+  return /\d{4,}/.test(path) || /-p-|\/p\/|\/product\/|\/dp\/|\.html$/.test(path);
 }
 function sameSite(hostname, domain) {
   const h = hostname.toLowerCase().replace(/^www\./, "");
@@ -383,6 +399,41 @@ async function searchSite(config, query) {
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
+// --- Raw search-page diagnostic (bypasses extraction entirely) ---
+//
+// Added after a live run (2026) where farfetch.com returned the exact same
+// 3 generic nav links for every query - which could equally have been "the
+// search URL redirected somewhere else" or "the real results are rendered
+// client-side and never appear in the raw HTML at all" (which no plain HTTP
+// fetch, however well-patterned, could ever see). This prints enough to
+// tell those apart at a glance, before even looking at extracted candidates.
+async function diagnoseSearchPage(domain, url) {
+  try {
+    const res = await fetchWithTimeout(url);
+    const html = await res.text();
+    if (res.url !== url) {
+      console.log(`    [diagnostic] Site redirected the search URL to: ${res.url}`);
+    }
+    const $ = cheerio.load(html);
+    const hrefs = $("a[href]").toArray().map((el) => $(el).attr("href") ?? "");
+    const sameDomainCount = hrefs.filter((h) => {
+      try {
+        return sameSite(new URL(h, url).hostname, domain);
+      } catch {
+        return false;
+      }
+    }).length;
+    console.log(
+      `    [diagnostic] status=${res.status}, ${hrefs.length} total <a href> on the raw page (${sameDomainCount} same-domain).` +
+        (hrefs.length < 5
+          ? " Very few links at all - this page may be a JS shell whose real content never appears in the raw HTML."
+          : "")
+    );
+  } catch (err) {
+    console.log(`    [diagnostic] Could not fetch the raw search page directly: ${err.message}`);
+  }
+}
+
 // --- Main ---
 
 async function main() {
@@ -425,6 +476,8 @@ async function main() {
 
   for (const config of sites) {
     console.log(`=== ${config.domain} ===`);
+
+    await diagnoseSearchPage(config.domain, config.buildSearchUrl(queries[0]));
 
     for (const [i, query] of queries.entries()) {
       console.log(`  [Attempt ${i + 1}: ${ATTEMPT_LABELS[i]}] query="${query}"`);

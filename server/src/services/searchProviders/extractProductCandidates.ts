@@ -38,14 +38,24 @@ const NON_PRODUCT_PATH_HINTS = [
 /**
  * Generic fallback for "does this path look like a product page" when a site
  * doesn't supply its own `productUrlPattern`. Product pages are rarely
- * top-level and usually carry either a numeric id or a recognizable product
- * URL segment (`/p/`, `/product/`, `/dp/`) or end in `.html` (common on
- * Commerce Cloud / Magento-family retail platforms).
+ * top-level and usually carry either a real product/SKU id or a recognizable
+ * product URL segment (`/p/`, `/product/`, `/dp/`) or end in `.html` (common
+ * on Commerce Cloud / Magento-family retail platforms).
+ *
+ * Requires a run of 4+ consecutive digits, not just "any digit anywhere" -
+ * a bug found on a live run (2026): farfetch.com's global top-nav category
+ * links (Clothing/Shoes/Bags-style, using short 1-2 digit category ids)
+ * were being misclassified as product candidates by the old "any digit"
+ * check, so every query returned the exact same 3 generic nav links
+ * regardless of what was actually searched. A real product/SKU id is
+ * reliably longer than a category id, so this keeps accepting genuine
+ * product paths (see jsonLdSearchResults fixture, an 8-digit id with no
+ * other marker) while excluding short category/page-number noise.
  */
 function looksLikeProductPath(path: string): boolean {
   const segments = path.split("/").filter(Boolean);
   if (segments.length < 2) return false;
-  return /\d/.test(path) || /-p-|\/p\/|\/product\/|\/dp\/|\.html$/.test(path);
+  return /\d{4,}/.test(path) || /-p-|\/p\/|\/product\/|\/dp\/|\.html$/.test(path);
 }
 
 export interface ExtractConfig {

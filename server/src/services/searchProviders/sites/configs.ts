@@ -33,9 +33,21 @@ import type { SiteAdapterConfig } from "../createSiteAdapter.js";
 //                     `productUrlPattern` that requires a real numeric
 //                     product id in the URL, not just any `.html` page.
 //                     Still needs a live re-test to confirm the fix.
-//   farfetch.com    - search URL returns 404 (not blocked - just wrong
-//                     path). Best-effort alternate guess below, still
-//                     unverified.
+//   farfetch.com    - original guessed path 404'd; the alternate guess below
+//                     (`/search?q=`) stopped 404ing but then returned the
+//                     *exact same 3 generic top-nav category links*
+//                     (Clothing/Shoes/Bags-style) regardless of query. Part
+//                     of that was the shared extractor's too-loose "any
+//                     digit in the path" fallback matching short category
+//                     ids - fixed for every site in
+//                     extractProductCandidates.ts, plus a farfetch-specific
+//                     `productUrlPattern` below. Still unverified whether
+//                     that's the whole story, though: if it still only
+//                     returns nav links after this fix, the next thing to
+//                     check is whether farfetch.com's search results are
+//                     rendered client-side (no product links in the raw
+//                     page source at all), which no plain HTTP fetch could
+//                     ever see regardless of URL/pattern correctness.
 //   mrporter.com    - same: 404, not blocked. Best-effort alternate guess
 //                     below, still unverified.
 //   endclothing.com - same: 404, not blocked. Best-effort alternate guess
@@ -68,6 +80,24 @@ export const SITE_CONFIGS: SiteAdapterConfig[] = [
     // Alternate guess after the original /shopping/search/ path 404'd -
     // still unverified, please confirm against the real site.
     buildSearchUrl: (q) => `https://www.farfetch.com/search?q=${encodeURIComponent(q)}`,
+    // A live run (2026) returned the exact same 3 generic top-nav category
+    // links (Clothing/Shoes/Bags-style) for every query, which turned out to
+    // be partly the shared extractor's too-loose generic fallback matching
+    // short category-id links (see extractProductCandidates.ts) - fixed
+    // there for every site. This adds a farfetch-specific guard on top:
+    // Farfetch's real product pages are conventionally named
+    // "<slug>-item-<digits>.aspx" while category/listing pages are
+    // "items.aspx" (plural, no id) - requiring "-item-<digits>" excludes the
+    // listing pages even if they otherwise looked product-shaped. Still an
+    // unverified guess (this sandbox has no outbound internet access): if
+    // farfetch.com still returns only nav-style links after this, the next
+    // thing to check is whether farfetch.com's search results are rendered
+    // client-side (view raw page source, not the inspector, for the exact
+    // URL above - if no product links appear there at all, no plain HTTP
+    // fetch will ever see them, and this site would need the same
+    // headless-browser approach discussed for selfridges.com, or be
+    // dropped like the sites already trimmed in an earlier pass).
+    productUrlPattern: /-item-\d+\.aspx(?:[/?#]|$)/i,
   },
   {
     domain: "mrporter.com",

@@ -112,3 +112,22 @@ test("returns an empty array for a page with no product-shaped links (a legitima
   const results = extractProductCandidates(html, SEARCH_PAGE_URL, { domain: "example-retailer.com" });
   assert.deepEqual(results, []);
 });
+
+// Regression for a real bug found on a live run (2026): the generic
+// fallback's old "any digit anywhere in the path" check let global top-nav
+// category links through (e.g. a "Clothing"/"Shoes"/"Bags" menu using short
+// 1-2 digit category ids), so a site with no own productUrlPattern returned
+// the exact same handful of nav links regardless of the actual query.
+test("the generic fallback excludes short category/nav ids but still accepts a real long-digit product id", () => {
+  const html = `
+    <nav>
+      <a href="/shopping/women/clothing-1/items.aspx">Clothing</a>
+      <a href="/shopping/women/shoes-2/items.aspx">Shoes</a>
+      <a href="/shopping/women/bags-17/items.aspx">Bags</a>
+    </nav>
+    <a href="/s/navy-jacket/50567890">Navy Jacket</a>
+  `;
+  const results = extractProductCandidates(html, SEARCH_PAGE_URL, { domain: "example-retailer.com" });
+  assert.equal(results.length, 1);
+  assert.ok(results[0].url.endsWith("/s/navy-jacket/50567890"));
+});

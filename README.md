@@ -76,7 +76,7 @@ simpler and more reliable while it's still unverified against live sites
 | Site | Status | Diagnosis | Next step |
 |---|---|---|---|
 | `hugoboss.com` | Search URL works (200) | Bare style-code query matched an unrelated kids'/junior category page, not the product - the URL was being classified as a product page just for ending in `.html`, which lots of non-product pages also do | Fixed: `productUrlPattern` now requires a real numeric product id before the `.html` (`sites/configs.ts`) - **needs a live re-test to confirm** |
-| `farfetch.com` | 404 | Site responded normally - the guessed search path was simply wrong, not blocked | Updated to a simpler guess (`/search?q=`) - **still unverified, needs a live re-test** |
+| `farfetch.com` | 404, then 200 after the URL guess was updated | Second live run (200, no longer 404): returned the exact same 3 generic top-nav category links (Clothing/Shoes/Bags-style) for every one of the 3 query attempts - a sign of either the shared extractor being too loose, the search results being client-rendered (never in the raw HTML), or both | Fixed the confirmed part: the shared extraction fallback required only "any digit in the path", so short category ids passed as if they were products - now requires a 4+ digit run, plus a farfetch-specific `productUrlPattern` requiring its real `-item-<digits>.aspx` product-page marker (`sites/configs.ts`). Both smoke-test scripts also now print a raw-page diagnostic (link count + any redirect) so a client-rendered results page is obvious immediately rather than inferred. **Still unverified whether real product links exist in the raw HTML at all - needs a live re-test** |
 | `mrporter.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/en-us/search?keyword=`) - **still unverified, needs a live re-test** |
 | `endclothing.com` | 404 | Same - wrong path, not blocked | Updated to a simpler guess (`/search?q=`), dropping the assumed Magento `/catalogsearch/result/` path - **still unverified, needs a live re-test** |
 | `selfridges.com` | Still 403 with realistic browser headers | Headers alone didn't flip it (unlike hugoboss.com) - consistent with heavier bot management (TLS fingerprinting and/or a JS challenge) that no plain HTTP client can satisfy | No code fix possible without live access to inspect the response; see the "what would it take" discussion below |
@@ -351,15 +351,18 @@ every variable below is an optional tuning knob:
 
 ## 6. Testing performed
 
-**Automated (101 passing tests, `npm test -w server`):**
+**Automated (103 passing tests, `npm test -w server`):**
 - Direct-site-search adapters (added with this pivot), all using **saved,
   hand-built HTML fixtures - no live network calls in the test suite**:
-  - `extractProductCandidates.test.ts` (8 tests): real product tiles are
+  - `extractProductCandidates.test.ts` (9 tests): real product tiles are
     extracted and nav/account/footer/cross-domain chrome is ignored; relative
     hrefs resolve against the search page URL; title falls back
     aria-label → image alt → link text; `maxCandidates` and a per-site
     `productUrlPattern` override both work; repeated links de-dupe; a
-    legitimate zero-results page returns `[]`.
+    legitimate zero-results page returns `[]`; the generic fallback requires
+    a real (4+ digit) product/SKU id rather than "any digit", so a short
+    numeric category/nav id doesn't get misread as a product (the exact
+    farfetch.com bug below).
   - `createSiteAdapter.test.ts` (7 tests, mocked global `fetch`): correctly
     parses an SFCC-style results page (hugoboss.com-like), a Magento-style
     results page (endclothing.com-like), and a JSON-LD-carrying results page
@@ -369,9 +372,12 @@ every variable below is an optional tuning knob:
   - `botCheck.test.ts` (5 tests): flags 403/429/503 and common CAPTCHA/block
     page text; does not flag an ordinary 200 response or a legitimate
     "no results found" page.
-  - `configs.test.ts` (4 tests): all 5 target domains are present; every
+  - `configs.test.ts` (6 tests): all 5 target domains are present; every
     config builds an `https://` URL on its own domain; queries are
-    URL-encoded; the query appears in some query-string parameter.
+    URL-encoded; the query appears in some query-string parameter;
+    `hugoboss.com`'s and `farfetch.com`'s site-specific `productUrlPattern`s
+    each exclude that site's category/listing pages while still accepting
+    its real product-page URL shape.
   - `politeness.test.ts` (3 tests): a domain's first request isn't delayed;
     a second request to the *same* domain waits out the configured delay;
     a *different* domain is never held up by another site's timer.
@@ -472,6 +478,34 @@ every variable below is an optional tuning knob:
   scripts' now-differentiated error messages (`BLOCKED` vs `404` vs other
   non-OK) exist specifically to make this kind of thing easy to spot and
   diagnose without a round-trip to ask what a status code meant.
+- **A second live run surfaced a real bug in the shared extraction fallback,
+  found via `farfetch.com`**: every one of the 3 query attempts returned the
+  exact same 3 generic top-nav category links (Clothing/Shoes/Bags-style),
+  regardless of what was searched. Root cause: the generic
+  "does this look like a product page" fallback
+  (`extractProductCandidates.ts`) accepted *any* digit anywhere in the URL
+  path, and short 1-2 digit category ids satisfied that just as well as a
+  real product/SKU id - so a site's own global nav (present on every page,
+  independent of the query) was being misread as search results. Fixed for
+  every site sharing the fallback by requiring a 4+ digit run instead, plus
+  a farfetch-specific `productUrlPattern` requiring its real
+  `-item-<digits>.aspx` product-page marker. **This does not rule out a
+  second, independent possibility that still needs a live check**: if
+  farfetch.com's search results are rendered client-side (via JS, after the
+  initial page load), the raw HTML a plain HTTP fetch sees would never
+  contain real product links at all, regardless of how correct the URL or
+  extraction pattern is - the same category of problem already flagged for
+  `selfridges.com`'s bot protection, just from a different cause. Both
+  smoke-test scripts now print a raw-page diagnostic (total/same-domain
+  link count on the unfiltered page, plus any redirect) specifically so
+  this is visible at a glance on the next live run, instead of requiring
+  another guess-and-check round.
+- Applying that same fix scope: `mrporter.com` and `endclothing.com` share
+  the same generic extraction fallback and have not defined their own
+  `productUrlPattern`, so they were (and, for whatever residual looseness
+  the 4+ digit threshold still allows, may still be) exposed to the same
+  class of bug - they just haven't been live-tested since this fix to
+  confirm either way.
 - **`selfridges.com` still 403s even with a realistic browser header set** -
   a materially different signal than a 404 (wrong URL) or a 403 that a
   browser UA fixes: headers alone not moving it is consistent with heavier

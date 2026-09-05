@@ -70,3 +70,27 @@ test("hugoboss.com's productUrlPattern excludes category/listing pages but keeps
   assert.equal(results.length, 1);
   assert.ok(results[0].url.endsWith("-50512345.html"));
 });
+
+// Regression for a real bug found on a live run (2026): farfetch.com
+// returned the exact same 3 generic top-nav category links (Clothing/Shoes/
+// Bags-style) for every query. productUrlPattern now requires the
+// "-item-<digits>.aspx" marker Farfetch uses for real product pages,
+// excluding "items.aspx" (plural, no id) category/listing pages.
+test("farfetch.com's productUrlPattern excludes nav/category pages but keeps real product pages", () => {
+  const farfetch = SITE_CONFIGS.find((c) => c.domain === "farfetch.com");
+  assert.ok(farfetch?.productUrlPattern, "farfetch.com should define a productUrlPattern override");
+
+  const html = `
+    <a href="/shopping/women/clothing-1/items.aspx">Clothing</a>
+    <a href="/shopping/women/shoes-2/items.aspx">Shoes</a>
+    <a href="/shopping/women/bags-17/items.aspx">Bags</a>
+    <a href="/shopping/women/gucci-loafers-item-14587136.aspx">Gucci Loafers</a>
+  `;
+  const results = extractProductCandidates(html, "https://www.farfetch.com/search?q=50512345", {
+    domain: "farfetch.com",
+    productUrlPattern: farfetch.productUrlPattern,
+  });
+
+  assert.equal(results.length, 1);
+  assert.ok(results[0].url.endsWith("-item-14587136.aspx"));
+});

@@ -36,12 +36,51 @@
  * Example (just two confirmed-reachable sites):
  *   SITES=hugoboss.com,farfetch.com npx tsx scripts/smokeTestSites.ts 50469055 Black 009
  */
-import { SITE_ADAPTERS } from "../src/services/searchProviders/sites/index.js";
+import * as cheerio from "cheerio";
+import { SITE_ADAPTERS, SITE_CONFIGS } from "../src/services/searchProviders/sites/index.js";
 import { runSiteSearch, getSiteHealthSnapshot } from "../src/services/searchProviders/index.js";
 import { fetchProductPage } from "../src/services/pageFetcher.js";
 import { buildEscalatingQueries } from "../src/services/queryBuilder.js";
+import { fetchWithTimeout } from "../src/lib/httpFetch.js";
 
 const ATTEMPT_LABELS = ["Style Code alone", "+ Colour Name", "+ Colour Code"];
+
+/**
+ * Raw, un-filtered look at a site's search-results page, bypassing the
+ * adapter/extraction logic entirely - added after a live run (2026) where
+ * farfetch.com returned the exact same 3 generic nav links for every query,
+ * which turned out to be partly a too-loose extraction fallback (fixed) but
+ * could equally have been "the search URL redirected somewhere else" or
+ * "the real results are rendered client-side and never appear in the raw
+ * HTML at all" (which no plain HTTP fetch, however well-patterned, could
+ * ever see). This prints enough to tell those apart at a glance.
+ */
+async function diagnoseSearchPage(domain: string, url: string) {
+  try {
+    const res = await fetchWithTimeout(url);
+    const html = await res.text();
+    if (res.url !== url) {
+      console.log(`    [diagnostic] Site redirected the search URL to: ${res.url}`);
+    }
+    const $ = cheerio.load(html);
+    const hrefs = $("a[href]").toArray().map((el) => $(el).attr("href") ?? "");
+    const sameDomainCount = hrefs.filter((h) => {
+      try {
+        return new URL(h, url).hostname.replace(/^www\./, "").endsWith(domain.replace(/^www\./, ""));
+      } catch {
+        return false;
+      }
+    }).length;
+    console.log(
+      `    [diagnostic] status=${res.status}, ${hrefs.length} total <a href> on the raw page (${sameDomainCount} same-domain). ` +
+        (hrefs.length < 5
+          ? "Very few links at all - this page may be a JS shell whose real content never appears in the raw HTML."
+          : "")
+    );
+  } catch (err) {
+    console.log(`    [diagnostic] Could not fetch the raw search page directly: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 async function main() {
   const [styleCode, colour = "", colourCode = ""] = process.argv.slice(2);
@@ -69,6 +108,11 @@ async function main() {
 
   for (const adapter of adapters) {
     console.log(`=== ${adapter.name} ===`);
+
+    const config = SITE_CONFIGS.find((c) => c.domain === adapter.name);
+    if (config) {
+      await diagnoseSearchPage(adapter.name, config.buildSearchUrl(queries[0]));
+    }
 
     for (const [i, query] of queries.entries()) {
       console.log(`  [Attempt ${i + 1}: ${ATTEMPT_LABELS[i]}] query="${query}"`);
