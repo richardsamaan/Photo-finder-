@@ -37,7 +37,24 @@ export function findHeaderRow(grid: unknown[][], mustContain: string[], maxScan 
 /** Build a SheetPreview from a raw grid + known header row index. */
 export function buildPreview(grid: unknown[][], headerRowIndex: number, sampleSize = 5): SheetPreview {
   const headerRow = grid[headerRowIndex] ?? [];
-  const rawHeaders = headerRow.map((h, i) => (h == null || String(h).trim() === "" ? `Column ${i + 1}` : String(h).trim()));
+  // Some exports (e.g. a raw SAP-style "Order on the way" report) split the
+  // header across two rows — most field names sit on the header row, but a
+  // few (often trailing summary columns like "pending Units QTY") only have
+  // their real name one row up, with this row blank at that column. Borrow
+  // from the row above before falling back to a placeholder "Column N".
+  const aboveRow = headerRowIndex > 0 ? grid[headerRowIndex - 1] ?? [] : [];
+  // A handful of these split-header value columns carry a bare currency code
+  // ("EUR") on the header row itself rather than being blank — that's a unit
+  // label, not a field name, so it shouldn't block borrowing the real name
+  // from the row above either.
+  const isUnitPlaceholder = (v: string) => /^(eur|usd|gbp|bhd|aed|sar|kwd|omr|qar|%)$/i.test(v);
+  const rawHeaders = headerRow.map((h, i) => {
+    const text = h == null ? "" : String(h).trim();
+    if (text !== "" && !isUnitPlaceholder(text)) return text;
+    const above = aboveRow[i];
+    if (above != null && String(above).trim() !== "") return String(above).trim();
+    return `Column ${i + 1}`;
+  });
   // De-duplicate repeated header text (e.g. 3x "Cur Stk" / "Cur Stk Cost" pairs, one per
   // location) so each column keeps its own value instead of later columns overwriting earlier ones.
   const seen = new Map<string, number>();

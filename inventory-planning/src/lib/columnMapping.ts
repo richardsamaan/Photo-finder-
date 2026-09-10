@@ -65,8 +65,20 @@ export const ORDER_FIELDS: FieldSpec[] = [
   { key: "ean", label: "EAN/UPC (barcode — SKU key)", required: true, aliases: ["ean", "upc", "barcode"] },
   { key: "wholesalePrice", label: "Wholesale price (cost)", required: false, aliases: ["wholesale price", "wholesale"] },
   { key: "expectedDeliveryDate", label: "Expected delivery date", required: true, aliases: ["expected delivery date", "expected delivery", "delivery date"] },
-  { key: "pendingUnitsQty", label: "pending Units QTY", required: true, aliases: ["pending units qty", "pending qty", "units qty"] },
-  { key: "pendingUnitsValue", label: "pending Units value", required: false, aliases: ["pending units value", "units value"] },
+  {
+    key: "pendingUnitsQty",
+    label: "pending Units QTY",
+    required: true,
+    // "pending unites qty" (sic) tolerates a real-world misspelling ("Unites") seen in
+    // an actual SAP export — auto-detection shouldn't fail just because of a typo upstream.
+    aliases: ["pending units qty", "pending unites qty", "pending qty", "units qty"],
+  },
+  {
+    key: "pendingUnitsValue",
+    label: "pending Units value",
+    required: false,
+    aliases: ["pending units value", "pending unites value", "units value"],
+  },
   { key: "suggestedCategory", label: "HB_Warehouse_ProdGrp", required: false, aliases: ["hb_warehouse_prodgrp", "warehouse prodgrp", "prodgrp"] },
 ];
 

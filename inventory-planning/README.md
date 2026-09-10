@@ -154,13 +154,48 @@ quirks synthetic data hadn't — all fixed and re-verified:
   Code format; auto-detection now prefers it by exact phrase instead of
   letting a generic "barcode" alias win on a same-scoring column.
 
-With those fixes, the real files loaded correctly end-to-end (SA79's 20MB
-upload took ~19s to parse in-browser) with sensible results: e.g. only
-~4.9% of SA79's 26,162 historical SKUs matched current INV01 stock (INV01 is
-a point-in-time snapshot; SA79 covers 6+ years, so most historically-sold
-SKUs are long since discontinued/sold through) — surfaced transparently via
-the match-count summary and an "(Uncategorized)" bucket in the reports
-rather than silently dropped or misattributed. Bazaar's real numbers came
-back with a genuinely negative margin (clearance sold below cost), which is
-exactly the kind of thing the core-retail-vs-including-clearance split in
-Profitability is meant to surface rather than hide.
+A real "Order on the way" export was tested too (3,062 rows), surfacing more:
+
+- **Its EAN/UPC is a 13-digit code, not the 12-digit Item Code** used by
+  INV01/SA79 — specifically, the 12-digit code with a standard EAN-13 check
+  digit appended (verified: 100% of the 3,062 real EANs carry a valid
+  checksum over their first 12 digits). Left alone, this matched 0 SKUs to
+  INV01. The matching-key normalizer now strips a verified check digit
+  before comparing — never a blind slice, so a genuinely-13-digit code that
+  *doesn't* checksum-match passes through unchanged. That alone took the
+  match rate from 0% to 24% (746/3,062) — the shape of a real order book,
+  where many lines are new-season styles that were never in current stock
+  and correctly land in the "new item" queue.
+- **Its true header is split across two rows** for several trailing summary
+  columns — a raw SAP export where the field name sits one row above a
+  currently-blank (or unit-label, e.g. "EUR") cell on the header row itself.
+  Column mapping now borrows from the row above when the header row's own
+  cell is blank or looks like a bare currency/percent placeholder, rather
+  than falling back to a meaningless "Column N".
+- **One of those borrowed header names carries a real typo** — "pending
+  Unites QTY" (not "Units") — now tolerated as an explicit alias variant
+  rather than failing to auto-map a required field over a single misspelled
+  letter upstream.
+- **Volume**: 2,316 of the order's 3,062 SKUs were genuinely new (not yet in
+  INV01/SA79). One-by-one category confirmation doesn't scale at that size,
+  so a "Confirm all N suggested categories" bulk action was added alongside
+  the per-row override — still one explicit user action per the brief's
+  "must confirm, never silently trust" requirement, just not one click per
+  SKU. Rows with no suggestion at all still need individual attention.
+
+With those fixes, all four real files loaded and processed correctly
+end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible
+results: e.g. only ~4.9% of SA79's 26,162 historical SKUs matched current
+INV01 stock (INV01 is a point-in-time snapshot; SA79 covers 6+ years, so
+most historically-sold SKUs are long since discontinued/sold through) —
+surfaced transparently via the match-count summary and an "(Uncategorized)"
+bucket in the reports rather than silently dropped or misattributed. Bazaar's
+real numbers came back with a genuinely negative margin (clearance sold
+below cost), which is exactly the kind of thing the core-retail-vs-including-
+clearance split in Profitability is meant to surface rather than hide. One
+thing worth knowing going in: because current-stock SOH and matched-sales
+history don't fully overlap (that same 4.9% match), Average/12 coverage % can
+look extreme for a category where matched sales history is thin relative to
+its real stock — the number is arithmetically correct given what's matched,
+not a bug, but worth cross-checking against another forecast method (or
+against real intuition) before acting on an outlier.

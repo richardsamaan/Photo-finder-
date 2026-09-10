@@ -6,6 +6,7 @@ import { COLOUR_KEY_FIELDS, INV01_FIELDS, ORDER_FIELDS, SA79_FIELDS } from "../l
 import { colourKeyToMap, parseColourKey, parseInv01, parseOrderOnTheWay, parseSa79 } from "../lib/parsers";
 import { toText } from "../lib/sheetLoad";
 import { computeMatchSummary } from "../lib/matching";
+import { normalizeMatchingKey } from "../lib/matchingKey";
 import type { LocationId } from "../types";
 
 export function MappingStep() {
@@ -62,9 +63,11 @@ export function MappingStep() {
     }
   }
 
-  const inv01Skus = new Set(inv01.preview.rows.map((r) => toText(r[inv01.mapping.itemCode ?? ""])).filter(Boolean));
-  const sa79Skus = sa79.preview.rows.map((r) => toText(r[sa79.mapping.itemCode ?? ""])).filter(Boolean);
-  const orderSkus = order.preview.rows.map((r) => toText(r[order.mapping.ean ?? ""]) || toText(r[order.mapping.line ?? ""])).filter(Boolean);
+  const inv01Skus = new Set(inv01.preview.rows.map((r) => normalizeMatchingKey(toText(r[inv01.mapping.itemCode ?? ""]))).filter(Boolean));
+  const sa79Skus = sa79.preview.rows.map((r) => normalizeMatchingKey(toText(r[sa79.mapping.itemCode ?? ""]))).filter(Boolean);
+  const orderSkus = order.preview.rows
+    .map((r) => normalizeMatchingKey(toText(r[order.mapping.ean ?? ""]) || toText(r[order.mapping.line ?? ""])))
+    .filter(Boolean);
   const sa79Match = computeMatchSummary("SA79 vs INV01", sa79Skus, inv01Skus);
   const orderMatch = computeMatchSummary("Order on the way vs INV01", orderSkus, inv01Skus);
 

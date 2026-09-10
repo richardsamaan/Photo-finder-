@@ -3,6 +3,7 @@ import { ALL_LOCATIONS } from "../types";
 import type { StockColumnPair } from "./inv01LocationColumns";
 import { toDate, toNumber, toText } from "./sheetLoad";
 import { normalizeColourCode, parseStyleColourSize, resolveColourName } from "./referenceParse";
+import { normalizeMatchingKey } from "./matchingKey";
 
 function get(row: Record<string, unknown>, mapping: ColumnMapping, key: string): unknown {
   const header = mapping[key];
@@ -17,7 +18,7 @@ export function parseInv01(
 ): Inv01Row[] {
   return preview.rows
     .map((row): Inv01Row | null => {
-      const itemCode = toText(get(row, mapping, "itemCode"));
+      const itemCode = normalizeMatchingKey(toText(get(row, mapping, "itemCode")));
       // Real SAP-style exports append "TOTAL-", "TOTAL -ACCESSORIES", "TOTAL-BOSS" etc.
       // subtotal/grand-total rows with the running total sitting in the Item Code
       // column — never a real SKU, and would otherwise massively inflate every
@@ -75,7 +76,7 @@ function matchLocationByStoreName(storeName: string): LocationId | null {
 export function parseSa79(preview: SheetPreview, mapping: ColumnMapping, colourKey: Map<string, string>): Sa79Row[] {
   return preview.rows
     .map((row): Sa79Row | null => {
-      const itemCode = toText(get(row, mapping, "itemCode"));
+      const itemCode = normalizeMatchingKey(toText(get(row, mapping, "itemCode")));
       // A trailing "Grand Total" row (no item code) is common in these exports — never a real sale.
       if (!itemCode) return null;
       const storeName = toText(get(row, mapping, "storeName"));
@@ -111,7 +112,7 @@ export function parseOrderOnTheWay(
 ): OrderRow[] {
   return preview.rows
     .map((row): OrderRow | null => {
-      const line = toText(get(row, mapping, "ean")) || toText(get(row, mapping, "line"));
+      const line = normalizeMatchingKey(toText(get(row, mapping, "ean")) || toText(get(row, mapping, "line")));
       if (!line) return null;
       const season = toText(get(row, mapping, "season"));
       const override = seasonDateOverrides[season];

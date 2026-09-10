@@ -61,6 +61,7 @@ interface AppState {
 
   manualOverrides: Map<string, string>;
   setManualOverride: (itemCode: string, category: string) => void;
+  setManualOverrides: (entries: [string, string][]) => void;
   previousDecisionsMap: Map<string, string>;
   setPreviousDecisionsMap: (m: Map<string, string>) => void;
 
@@ -122,6 +123,12 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const next = new Map(state.manualOverrides);
       next.set(itemCode, category);
+      return { manualOverrides: next };
+    }),
+  setManualOverrides: (entries) =>
+    set((state) => {
+      const next = new Map(state.manualOverrides);
+      for (const [itemCode, category] of entries) next.set(itemCode, category);
       return { manualOverrides: next };
     }),
   previousDecisionsMap: new Map(),

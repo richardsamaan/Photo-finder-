@@ -28,6 +28,12 @@ export function CategoriesStep() {
     setDraft((d) => ({ ...d, [itemCode]: "" }));
   }
 
+  const newItemsWithSuggestion = resolution.newFromOrders.filter((n) => n.suggestedCategory.trim() !== "");
+
+  function confirmAllSuggested() {
+    store.setManualOverrides(newItemsWithSuggestion.map((n) => [n.itemCode, n.suggestedCategory.trim()]));
+  }
+
   function downloadDecisions() {
     const decisions = manualDecisionsForExport(store.manualOverrides);
     exportToExcel(
@@ -124,6 +130,17 @@ export function CategoriesStep() {
           <p className="muted">
             Suggested category comes from HB_Warehouse_ProdGrp — confirm or override before it's used in any report.
           </p>
+          {newItemsWithSuggestion.length > 1 && (
+            <div style={{ marginBottom: 10 }}>
+              <button className="secondary" onClick={confirmAllSuggested}>
+                Confirm all {newItemsWithSuggestion.length} suggested categories
+              </button>{" "}
+              <span className="muted">
+                One click accepts every pre-filled suggestion below as-is — still an explicit confirmation, just not
+                one row at a time. Override any individual row first if you don't want its suggestion accepted.
+              </span>
+            </div>
+          )}
           <div className="table-wrap">
             <table>
               <thead>
