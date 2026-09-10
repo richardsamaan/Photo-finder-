@@ -46,7 +46,7 @@ export const BAZAAR: LocationMeta = {
   id: "bazaar",
   label: "Bazaar (clearance)",
   sourceLabel: "BAHSale1-SALE EVENT BAH 1",
-  inv01Label: "SALE EVENT BAH 1-LOCAL CURRENCY1",
+  inv01Label: "SALE EVENT BAH 1-LOCAL CURRENCY",
 };
 
 /** All 4 locations — used for file parsing/mapping (INV01 stock pairs, SA79 store-name matching) and by the Profitability report. */

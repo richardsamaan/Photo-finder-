@@ -24,10 +24,29 @@ export const INV01_FIELDS: FieldSpec[] = [
 export const SA79_FIELDS: FieldSpec[] = [
   { key: "transactionDate", label: "Transaction Date", required: true, aliases: ["transaction date", "date"] },
   { key: "storeName", label: "Store Name", required: true, aliases: ["store name", "store", "location"] },
-  { key: "itemCode", label: "Item Code / Line (or Barcode)", required: true, aliases: ["item code", "item line", "barcode", "line", "sku"] },
+  {
+    key: "itemCode",
+    label: "Item Code / Line (or Barcode)",
+    required: true,
+    // "item code/line" first and as an exact phrase: real exports often carry a
+    // separate "Barcode"/"User Barcode" column alongside "Item Code/Line" (a
+    // longer EAN vs. INV01's own Item Code format) — without an exact-phrase
+    // alias, generic "barcode" can outscore it and silently pick the wrong column.
+    aliases: ["item code/line", "item code / line", "item code", "item line", "barcode", "line", "sku"],
+  },
   { key: "reference", label: "Reference", required: true, aliases: ["reference", "ref"] },
   { key: "season", label: "Season", required: false, aliases: ["season"] },
-  { key: "category", label: "Category", required: false, aliases: ["category"] },
+  {
+    key: "category",
+    label: "Category",
+    required: false,
+    // Deliberately no aliases: real SA79 exports have no column that's actually
+    // equivalent to INV01's Category (only coarser groupings like "Pur Category"
+    // or "Sales Category Description"). Auto-guessing one of those would make
+    // nearly every SKU look like a category conflict against INV01's real value —
+    // leave this unmapped by default and let the user opt in explicitly if they want it.
+    aliases: [],
+  },
   { key: "itemSize", label: "Item Size", required: false, aliases: ["item size", "size"] },
   { key: "rtp", label: "RTP", required: false, aliases: ["rtp", "retail price"] },
   { key: "costPrice", label: "Cost Price", required: false, aliases: ["cost price"] },

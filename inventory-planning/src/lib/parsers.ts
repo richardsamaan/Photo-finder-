@@ -2,7 +2,7 @@ import type { ColourKeyEntry, ColumnMapping, Inv01Row, LocationId, OrderRow, Sa7
 import { ALL_LOCATIONS } from "../types";
 import type { StockColumnPair } from "./inv01LocationColumns";
 import { toDate, toNumber, toText } from "./sheetLoad";
-import { parseStyleColourSize, resolveColourName } from "./referenceParse";
+import { normalizeColourCode, parseStyleColourSize, resolveColourName } from "./referenceParse";
 
 function get(row: Record<string, unknown>, mapping: ColumnMapping, key: string): unknown {
   const header = mapping[key];
@@ -18,7 +18,11 @@ export function parseInv01(
   return preview.rows
     .map((row): Inv01Row | null => {
       const itemCode = toText(get(row, mapping, "itemCode"));
-      if (!itemCode) return null;
+      // Real SAP-style exports append "TOTAL-", "TOTAL -ACCESSORIES", "TOTAL-BOSS" etc.
+      // subtotal/grand-total rows with the running total sitting in the Item Code
+      // column — never a real SKU, and would otherwise massively inflate every
+      // report's stock totals if treated as one.
+      if (!itemCode || itemCode.toUpperCase().startsWith("TOTAL")) return null;
       const stock: Inv01Row["stock"] = {};
       for (const { pair, location } of stockPairs) {
         if (!location) continue;
@@ -52,21 +56,29 @@ function matchLocationByStoreName(storeName: string): LocationId | null {
   for (const loc of ALL_LOCATIONS) {
     if (norm === loc.sourceLabel.toLowerCase()) return loc.id;
   }
-  // fallback: fuzzy substring / word-overlap match
+  // Fallback: fuzzy word-overlap match — real exports prefix Store Name with a
+  // numeric store code (e.g. "001-JNS DEPARTMENT STORE - AL AALI MALL"), so an
+  // exact match often fails. Score every location and take the BEST match
+  // rather than the first one clearing a threshold: the two JDS locations share
+  // 3 of their 4 words ("JNS DEPARTMENT STORE"), so a first-match-wins approach
+  // can misattribute Al Aali Mall's sales to BCC (whichever is checked first).
+  let best: { id: LocationId; score: number } | null = null;
   for (const loc of ALL_LOCATIONS) {
     const locWords = loc.sourceLabel.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     const overlap = locWords.filter((w) => norm.includes(w)).length;
-    if (overlap >= Math.ceil(locWords.length * 0.6)) return loc.id;
+    const score = overlap / Math.max(locWords.length, 1);
+    if (score >= 0.6 && (!best || score > best.score)) best = { id: loc.id, score };
   }
-  return null;
+  return best ? best.id : null;
 }
 
 export function parseSa79(preview: SheetPreview, mapping: ColumnMapping, colourKey: Map<string, string>): Sa79Row[] {
   return preview.rows
     .map((row): Sa79Row | null => {
       const itemCode = toText(get(row, mapping, "itemCode"));
+      // A trailing "Grand Total" row (no item code) is common in these exports — never a real sale.
+      if (!itemCode) return null;
       const storeName = toText(get(row, mapping, "storeName"));
-      if (!itemCode && !storeName) return null;
       const reference = toText(get(row, mapping, "reference"));
       const parsed = parseStyleColourSize(reference);
       const colourCode = parsed.colourCode;
@@ -134,6 +146,9 @@ export function parseColourKey(preview: SheetPreview, mapping: ColumnMapping): C
 
 export function colourKeyToMap(entries: ColourKeyEntry[]): Map<string, string> {
   const m = new Map<string, string>();
-  for (const e of entries) m.set(e.code, e.name);
+  // Colour codes are text ("002") when parsed from a Reference but often plain
+  // numbers (2) in the Colour Key file itself — Excel drops leading zeros from a
+  // numeric-typed cell. Normalize both sides (see resolveColourName) so they match.
+  for (const e of entries) m.set(normalizeColourCode(e.code), e.name);
   return m;
 }

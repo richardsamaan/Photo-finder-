@@ -90,7 +90,13 @@ interpretations this build made, called out so they're easy to revisit:
 
 - **SA79's Category column**: the sales file is described as already
   carrying a Category field (used for category resolution) but isn't listed
-  among SA79's "key columns" — it's mapped as an optional field.
+  among SA79's "key columns" — it's mapped as an optional field. Confirmed
+  against a real SA79 export: there's no column actually equivalent to
+  INV01's Category, only coarser groupings ("Pur Category", "Sales Category
+  Description") that don't share its values — auto-detection deliberately
+  never guesses one of those (it would flag nearly every SKU as a category
+  conflict against INV01's real value), leaving the field unmapped by
+  default until a user opts in explicitly.
 - **Colour/size on the stock side**: INV01 doesn't have separate Colour/Size
   columns, so the Size/Colour Suggestion % report parses INV01's Reference
   field with the same `Style-ColourCode-Size` pattern used for SA79, and
@@ -115,3 +121,46 @@ interpretations this build made, called out so they're easy to revisit:
   bold "Combined" row; with Bazaar included it adds a second bold "Combined
   incl. Bazaar" row and Bazaar's own row, so core-retail and
   including-clearance numbers sit side by side rather than silently blending.
+
+## Tested against real production files
+
+Beyond the synthetic sample data used during initial development, this build
+was run end-to-end against real INV01, SA79 (56,728 rows / 20MB, spanning
+2020–2026), and Colour Key exports. That surfaced several real-world format
+quirks synthetic data hadn't — all fixed and re-verified:
+
+- **INV01 grand-total rows**: real exports end with "TOTAL-", "TOTAL
+  -ACCESSORIES", "TOTAL-BOSS" summary rows carrying the running total in the
+  Item Code column — now filtered out (would otherwise have been counted as
+  real SKUs and inflated every report's stock totals).
+- **SA79's trailing "Grand Total" row** (no item code) is filtered the same
+  way.
+- **Colour Key codes are plain numbers** ("2"), not the zero-padded text
+  ("002") a Reference field parses out — resolution now strips leading
+  zeros from both sides before comparing, rather than assuming a fixed
+  padding width (real codes are a mix of 1-, 2-, and 3-digit).
+- **A small fraction of References use a different delimiter** —
+  `Style ColourCode Size` (space-separated, e.g. `50522704 100 43-46` for a
+  size-range pack) instead of the usual `Style-ColourCode-Size` — now
+  detected and parsed correctly instead of splitting the size range in half.
+- **SA79 store names carry a numeric prefix** (e.g. "001-JNS DEPARTMENT
+  STORE - AL AALI MALL"), and the two JDS locations share most of their
+  words ("JNS DEPARTMENT STORE"). Location matching now scores every
+  location and picks the best match rather than the first one clearing a
+  threshold — the earlier approach could misattribute Al Aali Mall's sales
+  to BCC.
+- **SA79 carries multiple code-like columns** ("Item Code/Line", "User
+  Barcode", "Barcode") — only "Item Code/Line" actually matches INV01's Item
+  Code format; auto-detection now prefers it by exact phrase instead of
+  letting a generic "barcode" alias win on a same-scoring column.
+
+With those fixes, the real files loaded correctly end-to-end (SA79's 20MB
+upload took ~19s to parse in-browser) with sensible results: e.g. only
+~4.9% of SA79's 26,162 historical SKUs matched current INV01 stock (INV01 is
+a point-in-time snapshot; SA79 covers 6+ years, so most historically-sold
+SKUs are long since discontinued/sold through) — surfaced transparently via
+the match-count summary and an "(Uncategorized)" bucket in the reports
+rather than silently dropped or misattributed. Bazaar's real numbers came
+back with a genuinely negative margin (clearance sold below cost), which is
+exactly the kind of thing the core-retail-vs-including-clearance split in
+Profitability is meant to surface rather than hide.
