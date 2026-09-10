@@ -1,4 +1,4 @@
-import { LOCATIONS, type LocationId } from "../types";
+import { ALL_LOCATIONS, type LocationId } from "../types";
 
 export interface StockColumnPair {
   /** Index into the header row (0-based). */
@@ -20,8 +20,8 @@ function guessLocation(label: string | null): LocationId | null {
   const norm = normalize(label);
   if (!norm) return null;
   let best: { id: LocationId; score: number } | null = null;
-  for (const loc of LOCATIONS) {
-    const locNorm = normalize(loc.sourceLabel);
+  for (const loc of ALL_LOCATIONS) {
+    const locNorm = normalize(loc.inv01Label ?? loc.sourceLabel);
     const locWords = locNorm.split(" ").filter((w) => w.length > 2);
     const matchCount = locWords.filter((w) => norm.includes(w)).length;
     const score = matchCount / Math.max(locWords.length, 1);

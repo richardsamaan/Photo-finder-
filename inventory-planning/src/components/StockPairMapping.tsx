@@ -1,4 +1,4 @@
-import { LOCATIONS, type LocationId } from "../types";
+import { ALL_LOCATIONS, LOCATIONS, type LocationId } from "../types";
 import type { StockColumnPair } from "../lib/inv01LocationColumns";
 
 interface Props {
@@ -31,8 +31,8 @@ export function StockPairMapping({ pairs, override, onChange }: Props) {
             value={override[p.columnIndex] ?? ""}
             onChange={(e) => onChange(p.columnIndex, (e.target.value || null) as LocationId | null)}
           >
-            <option value="">— not one of our 3 locations —</option>
-            {LOCATIONS.map((l) => (
+            <option value="">— not one of our locations —</option>
+            {ALL_LOCATIONS.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.label}
               </option>
@@ -46,6 +46,10 @@ export function StockPairMapping({ pairs, override, onChange }: Props) {
           until mapped.
         </div>
       )}
+      <p className="muted">
+        Bazaar (clearance) is optional to map — it's only used by the Profitability report's "Include Bazaar" toggle,
+        and never appears in Category Study, Risk Flagging, or Size/Colour Suggestion %.
+      </p>
     </div>
   );
 }

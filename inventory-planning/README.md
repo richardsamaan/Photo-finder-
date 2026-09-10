@@ -14,13 +14,30 @@ This is **Phase 1 of 4**. It delivers:
 - **Category Study** report (coverage/forecast, 4 selectable methods)
 - **Risk Flagging** report (category-level, with SKU-level drill-down)
 - **Size/Colour Suggestion %** report
-- **Profitability** report
-- Per-location and combined (whole-business) views on every report
+- **Profitability** report — a flexible SKU-level grouping engine (Category or
+  Location), with a Bazaar/clearance toggle
+- Per-location and combined (whole-business) views on Category Study, Risk
+  Flagging, and Size/Colour Suggestion %
 - Excel and PDF export on every report
 
 Reorder/transfer suggestions, Season Profitability & Clearance, aging/markdown,
 custom tagging, and forecast-accuracy checks are out of scope for Phase 1 —
 they come in later phases.
+
+## Locations
+
+Four selling points: **Boss Boutique — City Centre**, **JDS counter — City
+Centre / BCC**, and **JDS counter — Al Aali Mall** are normal, replenished
+retail points. **Bazaar** is a clearance/sale-event destination — not
+replenished, so it's treated differently everywhere:
+
+- Excluded entirely from Category Study, Risk Flagging, and Size/Colour
+  Suggestion % — "combined" on those 3 reports always means the other 3
+  locations only, Bazaar never appears there, not even unflagged.
+- Only the Profitability report can include it, via an "Include Bazaar"
+  toggle that's off by default (so clearance sales never silently distort a
+  full-price margin number) and shows "margin including clearance" alongside
+  the default "core retail margin" view when turned on.
 
 ## Run it
 
@@ -49,9 +66,10 @@ static files (GitHub Pages included), with no server component.
    exports can shift columns/rows between runs.
 2. **Confirm column mapping.** Every field is auto-detected by header text
    and pre-filled — you confirm or reassign before anything is parsed. For
-   INV01's three (Cur Stk, Cur Stk Cost) column pairs, the app also guesses
-   which of the three locations each pair belongs to from the label text in
-   the row directly above the header row.
+   INV01's four (Cur Stk, Cur Stk Cost) column pairs, the app also guesses
+   which location each pair belongs to from the label text in the row
+   directly above the header row (Bazaar's INV01 label differs from its SA79
+   Store Name, so it's matched separately from the other 3).
 3. **Resolve categories.** The SKU → Category table is rebuilt fresh each
    session from whichever of INV01/SA79 you uploaded. Any SKU where the two
    files disagree is flagged as a conflict you must resolve by hand — it's
@@ -88,6 +106,12 @@ interpretations this build made, called out so they're easy to revisit:
 - **Sell-through %** (Profitability report): Qty Sold ÷ (Qty Sold + current
   SOH), since no explicit "beginning inventory" field exists in the source
   files.
+- **"Sales ex-VAT"** (Profitability report): SA79's Sale Value is used as-is —
+  the source files carry no separate VAT field or rate to net out.
 - **Risk Flagging tiers** use whichever forecast method is selected in the
   shared method picker at the top of the Reports screen (shared with
   Category Study, per the brief).
+- **Profitability's Location grouping** shows one row per location plus a
+  bold "Combined" row; with Bazaar included it adds a second bold "Combined
+  incl. Bazaar" row and Bazaar's own row, so core-retail and
+  including-clearance numbers sit side by side rather than silently blending.

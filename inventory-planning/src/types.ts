@@ -1,14 +1,23 @@
 // Core domain types for the Inventory Planning app (Phase 1).
 
-export type LocationId = "boss_boutique" | "jds_bcc" | "jds_al_aali";
+export type LocationId = "boss_boutique" | "jds_bcc" | "jds_al_aali" | "bazaar";
 
 export interface LocationMeta {
   id: LocationId;
   label: string;
-  /** Text that identifies this location in source files (Store Name column, INV01 stock-pair header row, etc). */
+  /** Text that identifies this location in SA79's Store Name column. */
   sourceLabel: string;
+  /** Text that identifies this location in the row above INV01's header row. Defaults to sourceLabel when the two files use the same label text. */
+  inv01Label?: string;
 }
 
+/**
+ * The 3 normal, replenished selling points. This list drives the shared
+ * per-location/combined view used by Category Study, Risk Flagging, and
+ * Size/Colour Suggestion % — Bazaar is deliberately NOT here, since those
+ * reports' coverage/forecast logic doesn't apply to a one-way clearance
+ * destination and "combined" must mean these 3 only.
+ */
 export const LOCATIONS: LocationMeta[] = [
   {
     id: "boss_boutique",
@@ -27,9 +36,26 @@ export const LOCATIONS: LocationMeta[] = [
   },
 ];
 
+/**
+ * Bazaar — a clearance/sale-event destination, not a normal replenished
+ * retail point. Excluded from Category Study, Risk Flagging, Size/Colour
+ * Suggestion %, and from "combined" everywhere those reports use it.
+ * Only the Profitability report can include it (toggle, off by default).
+ */
+export const BAZAAR: LocationMeta = {
+  id: "bazaar",
+  label: "Bazaar (clearance)",
+  sourceLabel: "BAHSale1-SALE EVENT BAH 1",
+  inv01Label: "SALE EVENT BAH 1-LOCAL CURRENCY1",
+};
+
+/** All 4 locations — used for file parsing/mapping (INV01 stock pairs, SA79 store-name matching) and by the Profitability report. */
+export const ALL_LOCATIONS: LocationMeta[] = [...LOCATIONS, BAZAAR];
+
 export const COMBINED = "combined" as const;
 export type ViewScope = LocationId | typeof COMBINED;
 
+/** Scopes for Category Study / Risk Flagging / Size-Colour — Bazaar is never selectable here. */
 export function viewScopes(): { id: ViewScope; label: string }[] {
   return [
     { id: COMBINED, label: "Combined (whole business)" },

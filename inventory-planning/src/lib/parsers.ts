@@ -1,5 +1,5 @@
 import type { ColourKeyEntry, ColumnMapping, Inv01Row, LocationId, OrderRow, Sa79Row, SheetPreview } from "../types";
-import { LOCATIONS } from "../types";
+import { ALL_LOCATIONS } from "../types";
 import type { StockColumnPair } from "./inv01LocationColumns";
 import { toDate, toNumber, toText } from "./sheetLoad";
 import { parseStyleColourSize, resolveColourName } from "./referenceParse";
@@ -49,11 +49,11 @@ export function parseInv01(
 
 function matchLocationByStoreName(storeName: string): LocationId | null {
   const norm = storeName.toLowerCase().trim();
-  for (const loc of LOCATIONS) {
+  for (const loc of ALL_LOCATIONS) {
     if (norm === loc.sourceLabel.toLowerCase()) return loc.id;
   }
   // fallback: fuzzy substring / word-overlap match
-  for (const loc of LOCATIONS) {
+  for (const loc of ALL_LOCATIONS) {
     const locWords = loc.sourceLabel.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
     const overlap = locWords.filter((w) => norm.includes(w)).length;
     if (overlap >= Math.ceil(locWords.length * 0.6)) return loc.id;

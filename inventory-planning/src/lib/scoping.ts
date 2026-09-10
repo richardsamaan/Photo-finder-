@@ -20,6 +20,11 @@ export function stockForScope(row: Inv01Row, scope: ViewScope): { curStk: number
 }
 
 export function sa79ForScope(rows: Sa79Row[], scope: ViewScope): Sa79Row[] {
-  if (scope === COMBINED) return rows;
+  if (scope === COMBINED) {
+    // "Combined" means the 3 core locations only — Bazaar (and any row whose
+    // store name didn't match a known location) must never leak in here.
+    const coreIds = new Set(LOCATIONS.map((l) => l.id));
+    return rows.filter((r) => r.location != null && coreIds.has(r.location));
+  }
   return rows.filter((r) => r.location === scope);
 }

@@ -237,44 +237,7 @@ export function buildSizeColourSuggestion(
   return out.sort((a, b) => a.category.localeCompare(b.category) || a.size.localeCompare(b.size) || a.colour.localeCompare(b.colour));
 }
 
-// ---------------------------------------------------------------------------
-// Report 4: Profitability
-// ---------------------------------------------------------------------------
-
-export interface ProfitabilityRow {
-  category: string;
-  qtySold: number;
-  saleValue: number;
-  costValue: number;
-  marginPct: number | null;
-  marginValue: number;
-  soh: number;
-  sellThroughPct: number | null;
-}
-
-export function buildProfitability(inv01: Inv01Row[], sa79: Sa79Row[], categoryTable: Map<string, string>, scope: ViewScope): ProfitabilityRow[] {
-  const scopedSa79 = sa79ForScope(sa79, scope);
-  const categories = new Set<string>();
-  for (const r of inv01) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
-  for (const r of scopedSa79) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
-
-  const out: ProfitabilityRow[] = [];
-  for (const category of categories) {
-    const catSales = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-    const qtySold = catSales.reduce((s, r) => s + r.qty, 0);
-    const saleValue = catSales.reduce((s, r) => s + r.saleValue, 0);
-    const costValue = catSales.reduce((s, r) => s + r.costValue, 0);
-    const marginValue = saleValue - costValue;
-    const marginPct = saleValue > 0 ? (marginValue / saleValue) * 100 : null;
-
-    let soh = 0;
-    for (const r of inv01) {
-      if ((r.category || categoryOf(r.itemCode, categoryTable)) !== category) continue;
-      soh += stockForScope(r, scope).curStk;
-    }
-    const sellThroughPct = qtySold + soh > 0 ? (qtySold / (qtySold + soh)) * 100 : null;
-
-    out.push({ category, qtySold, saleValue, costValue, marginPct, marginValue, soh, sellThroughPct });
-  }
-  return out.sort((a, b) => a.category.localeCompare(b.category));
-}
+// Report 4 (Profitability) lives in ./profitability.ts — it's a SKU-level
+// grouping engine (Category/Location/Season attributes) rather than a fixed
+// per-category report like the 3 above, and needs its own location handling
+// for the Bazaar toggle.
