@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useAppStore } from "../../state/appStore";
 import { useCategoryTable } from "../../state/useCategoryTable";
+import { useReportDate } from "../../state/useReportDate";
 import { buildRiskFlagging, buildRiskSkuDrilldown, type RiskTier } from "../../lib/reports";
 import { FORECAST_METHODS } from "../../types";
 import { exportToExcel, exportToPdf, fmtNumber, fmtPct } from "../../lib/exportUtils";
@@ -13,17 +14,18 @@ function TierBadge({ tier }: { tier: RiskTier }) {
 export function RiskFlaggingReport() {
   const store = useAppStore();
   const categoryTable = useCategoryTable();
+  const { reportDate } = useReportDate();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const rows = useMemo(
-    () => buildRiskFlagging(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today, store.forecastMethod),
-    [store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today, store.forecastMethod]
+    () => buildRiskFlagging(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate, store.forecastMethod),
+    [store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate, store.forecastMethod]
   );
 
   const drilldown = useMemo(() => {
     if (!expanded) return [];
-    return buildRiskSkuDrilldown(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today, store.forecastMethod, expanded);
-  }, [expanded, store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today, store.forecastMethod]);
+    return buildRiskSkuDrilldown(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate, store.forecastMethod, expanded);
+  }, [expanded, store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate, store.forecastMethod]);
 
   const methodLabel = FORECAST_METHODS.find((m) => m.id === store.forecastMethod)!.label;
 

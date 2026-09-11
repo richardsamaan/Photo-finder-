@@ -1,26 +1,30 @@
 import { useMemo, useState } from "react";
 import { useAppStore } from "../../state/appStore";
 import { useCategoryTable } from "../../state/useCategoryTable";
+import { useReportDate } from "../../state/useReportDate";
 import { buildCategoryStudy } from "../../lib/reports";
 import { FORECAST_METHODS } from "../../types";
-import { gapMonths, yoyPeriodLabel } from "../../lib/forecast";
+import { gapMonthsCount, yoyMonthList, yoyPeriodLabel } from "../../lib/forecast";
 import { exportToExcel, exportToPdf, fmtDate, fmtMonths, fmtNumber } from "../../lib/exportUtils";
 
 export function CategoryStudyReport() {
   const store = useAppStore();
   const categoryTable = useCategoryTable();
+  const { reportDate } = useReportDate();
   const [compareAll, setCompareAll] = useState(false);
 
   const rows = useMemo(
-    () => buildCategoryStudy(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today),
-    [store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, store.today]
+    () => buildCategoryStudy(store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate),
+    [store.inv01Rows, store.sa79Rows, store.orderRows, categoryTable, store.scope, reportDate]
   );
 
   const methodLabel = FORECAST_METHODS.find((m) => m.id === store.forecastMethod)!.label;
   const includesYoy = compareAll || store.forecastMethod === "yoy";
 
   function yoyLabelFor(nextShipmentDate: Date | null): string | null {
-    return yoyPeriodLabel(gapMonths(store.today, nextShipmentDate));
+    if (!nextShipmentDate) return null;
+    const count = gapMonthsCount(reportDate, nextShipmentDate);
+    return yoyPeriodLabel(yoyMonthList(nextShipmentDate, count));
   }
 
   function exportRows() {

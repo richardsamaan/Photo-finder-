@@ -106,15 +106,34 @@ interpretations this build made, called out so they're easy to revisit:
   rows resolving to that category/SKU. "Order on the way" isn't
   location-specific in the brief, so it's treated as whole-business/warehouse
   incoming stock, used the same way regardless of the selected location view.
-- **Gap months** (the period a forecast has to cover): every calendar month
-  from today's month up to — but excluding — the shipment's month, per the
-  brief's own YoY example (today Sep, shipment Nov → Sep+Oct). All 3 forecast
-  methods (Average/12, YoY, Trailing 3-month) compute demand for this gap
-  period specifically, never a flat full-year figure. A 4th method
-  (Seasonality-adjusted) was removed: built from a single year of history, it
-  reduces to summing each gap month's share of an annual total that was
-  itself derived from those same months — algebraically identical to YoY, so
-  it never actually differed from it.
+- **Report date ("today")**: Category Study and Risk Flagging never use the
+  real-world system clock. Every calculation on those two reports — Gap
+  months, Average/12, YoY, Trailing 3-month, Coverage, and which
+  Order-on-the-way rows even count as a future "next shipment" — is anchored
+  to the latest Transaction Date found in the uploaded SA79 file, shown in a
+  banner at the top of the Reports screen (e.g. "Report date: 31-Aug-2026").
+  A point-in-time sales export must forecast as of when its own data ends,
+  not as of whenever someone happens to open the app days or months later.
+  If SA79 has no valid Transaction Date at all, the app falls back to the
+  system clock and flags this clearly in the banner rather than silently
+  guessing.
+- **Gap months**: the real calendar distance between the report date and the
+  next shipment date, in days, rounded to the nearest whole month (÷30.44) —
+  e.g. report date Aug 31 → shipment Oct 31 = 61 days → round(61/30.44) = 2.
+  All 3 forecast methods (Average/12, YoY, Trailing 3-month) compute demand
+  for this gap period specifically, never a flat full-year figure. A 4th
+  method (Seasonality-adjusted) was removed: built from a single year of
+  history, it reduces to summing each gap month's share of an annual total
+  that was itself derived from those same months — algebraically identical
+  to YoY, so it never actually differed from it.
+- **Which calendar months YoY sums**: since Gap is now a day-based count
+  rather than an explicit list of calendar months, YoY counts back that many
+  months from — and including — the shipment's own month (e.g. a 2-month gap
+  ending in an Oct 31 shipment uses Sep+Oct, shifted back a year: Sep25–Oct25).
+  The shipment's own month is included deliberately: a shipment dated deep
+  into its month doesn't cover any of that month's demand, so stock on hand
+  has to last through it too. This is the one place in this change with real
+  room for a different convention — flag it if a different one was intended.
 - **Category Study's Coverage (months)**: `SOH ÷ (Forecast ÷ Gap months)` —
   the forecast is first converted to a monthly demand rate (dividing by how
   many gap months it covers), then SOH is measured against that rate. This
@@ -198,6 +217,15 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   the per-row override — still one explicit user action per the brief's
   "must confirm, never silently trust" requirement, just not one click per
   SKU. Rows with no suggestion at all still need individual attention.
+- **The real SA79 file's latest Transaction Date is 2026-12-08, not
+  2026-08-31** — despite the file being titled "since opening till
+  31-Aug-2026" and its own header claiming that same range, it genuinely
+  contains 1,155 valid, non-garbage rows dated after Aug 31 (real store
+  names, real item codes), the latest on Dec 8. Since the report date is
+  defined as "the latest Transaction Date found in the file," this is what
+  the app correctly shows when those files are loaded — worth knowing before
+  trusting the report date at a glance, since it doesn't match what the
+  filename/title implies.
 
 With those fixes, all four real files loaded and processed correctly
 end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible
@@ -210,8 +238,8 @@ real numbers came back with a genuinely negative margin (clearance sold
 below cost), which is exactly the kind of thing the core-retail-vs-including-
 clearance split in Profitability is meant to surface rather than hide. One
 thing worth knowing going in: because current-stock SOH and matched-sales
-history don't fully overlap (that same 4.9% match), Average/12 coverage % can
-look extreme for a category where matched sales history is thin relative to
-its real stock — the number is arithmetically correct given what's matched,
-not a bug, but worth cross-checking against another forecast method (or
-against real intuition) before acting on an outlier.
+history don't fully overlap (that same 4.9% match), Average/12 Coverage
+(months) can look extreme for a category where matched sales history is thin
+relative to its real stock — the number is arithmetically correct given
+what's matched, not a bug, but worth cross-checking against another forecast
+method (or against real intuition) before acting on an outlier.

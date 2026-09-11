@@ -6,31 +6,45 @@ export interface GapMonth {
   month: number; // 1-12
 }
 
-/**
- * The "gap period" is every calendar month from today's month (inclusive)
- * up to — but excluding — the month the next shipment arrives in, since once
- * that shipment lands it covers its own month.
- * e.g. today = Sep, shipment = Nov -> [Sep, Oct].
- * If the shipment is due this month or already overdue, the gap is empty (0 months).
- */
-export function gapMonths(today: Date, shipmentDate: Date | null): GapMonth[] {
-  if (!shipmentDate) return [];
-  const shipY = shipmentDate.getFullYear();
-  const shipM = shipmentDate.getMonth() + 1;
-  let y = today.getFullYear();
-  let m = today.getMonth() + 1;
-  if (y > shipY || (y === shipY && m >= shipM)) return [];
+function daysBetween(a: Date, b: Date): number {
+  const utcA = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const utcB = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return (utcB - utcA) / 86400000;
+}
 
+/**
+ * Gap months = the real calendar distance between the report date and the
+ * next shipment date, in days, rounded to the nearest whole month (÷30.44).
+ * e.g. report date Aug 31 -> shipment Oct 31 = 61 days -> round(61/30.44) = 2.
+ * If the shipment is due on/before the report date, the gap is 0.
+ */
+export function gapMonthsCount(reportDate: Date, shipmentDate: Date | null): number {
+  if (!shipmentDate) return 0;
+  const days = daysBetween(reportDate, shipmentDate);
+  if (days <= 0) return 0;
+  return Math.max(0, Math.round(days / 30.44));
+}
+
+/**
+ * Which specific calendar months YoY sums actuals from. The gap is now a
+ * day-based count rather than an explicit list of calendar months, so YoY
+ * (which needs actual named months to look up "this month last year") counts
+ * back `count` months from — and including — the shipment's own month.
+ * The shipment's own month is included deliberately: a shipment dated deep
+ * into its month (e.g. Oct 31) doesn't cover any of that month's demand,
+ * so stock on hand has to last through it too.
+ */
+export function yoyMonthList(shipmentDate: Date, count: number): GapMonth[] {
   const result: GapMonth[] = [];
-  let guard = 0;
-  while (!(y === shipY && m === shipM) && guard < 240) {
-    result.push({ year: y, month: m });
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
+  let y = shipmentDate.getFullYear();
+  let m = shipmentDate.getMonth() + 1;
+  for (let i = 0; i < count; i++) {
+    result.unshift({ year: y, month: m });
+    m -= 1;
+    if (m === 0) {
+      m = 12;
+      y -= 1;
     }
-    guard += 1;
   }
   return result;
 }
@@ -44,16 +58,16 @@ export interface ForecastResult {
   note?: string;
 }
 
-function avg12Forecast(series: Map<string, MonthlyPoint>, today: Date, gap: GapMonth[]): ForecastResult {
-  const annual = trailing12(series, today).qty;
-  const forecastQty = (annual / 12) * gap.length;
-  return { method: "avg12", forecastQty, gapMonthsCount: gap.length, lowConfidence: annual === 0 };
+function avg12Forecast(series: Map<string, MonthlyPoint>, reportDate: Date, gapCount: number): ForecastResult {
+  const annual = trailing12(series, reportDate).qty;
+  const forecastQty = (annual / 12) * gapCount;
+  return { method: "avg12", forecastQty, gapMonthsCount: gapCount, lowConfidence: annual === 0 };
 }
 
-function yoyForecast(series: Map<string, MonthlyPoint>, gap: GapMonth[]): ForecastResult {
+function yoyForecast(series: Map<string, MonthlyPoint>, monthList: GapMonth[]): ForecastResult {
   let qty = 0;
   let missing = 0;
-  for (const g of gap) {
+  for (const g of monthList) {
     const p = series.get(monthKey(g.year - 1, g.month));
     if (p) qty += p.qty;
     else missing += 1;
@@ -61,15 +75,18 @@ function yoyForecast(series: Map<string, MonthlyPoint>, gap: GapMonth[]): Foreca
   return {
     method: "yoy",
     forecastQty: qty,
-    gapMonthsCount: gap.length,
-    lowConfidence: gap.length > 0 && missing === gap.length,
-    note: missing > 0 && gap.length > 0 ? `No same-month-last-year data for ${missing} of ${gap.length} gap month(s).` : undefined,
+    gapMonthsCount: monthList.length,
+    lowConfidence: monthList.length > 0 && missing === monthList.length,
+    note:
+      missing > 0 && monthList.length > 0
+        ? `No same-month-last-year data for ${missing} of ${monthList.length} gap month(s).`
+        : undefined,
   };
 }
 
-function trailing3Forecast(series: Map<string, MonthlyPoint>, today: Date, gap: GapMonth[]): ForecastResult {
-  let y = today.getFullYear();
-  let m = today.getMonth() + 1;
+function trailing3Forecast(series: Map<string, MonthlyPoint>, reportDate: Date, gapCount: number): ForecastResult {
+  let y = reportDate.getFullYear();
+  let m = reportDate.getMonth() + 1;
   let qty = 0;
   let monthsFound = 0;
   for (let i = 0; i < 3; i++) {
@@ -87,8 +104,8 @@ function trailing3Forecast(series: Map<string, MonthlyPoint>, today: Date, gap: 
   const avg = monthsFound > 0 ? qty / monthsFound : 0;
   return {
     method: "trailing3",
-    forecastQty: avg * gap.length,
-    gapMonthsCount: gap.length,
+    forecastQty: avg * gapCount,
+    gapMonthsCount: gapCount,
     lowConfidence: monthsFound < 3,
     note: monthsFound < 3 ? `Only ${monthsFound} of the last 3 months have sales history.` : undefined,
   };
@@ -101,14 +118,13 @@ function formatGapMonth(g: GapMonth): string {
 }
 
 /**
- * The calendar months YoY actually pulls sales from — the gap period shifted
- * back one year (e.g. gap = Sep26+Oct26 -> "Sep25–Oct25"). Computed fresh
- * from each category/SKU's own gap rather than a static label, since two
- * rows with different next-shipment dates use different YoY months.
+ * The calendar months YoY actually pulls sales from — computed fresh from
+ * each category/SKU's own gap rather than a static label, since two rows
+ * with different next-shipment dates use different YoY months.
  */
-export function yoyPeriodLabel(gap: GapMonth[]): string | null {
-  if (gap.length === 0) return null;
-  const shifted = gap.map((g) => ({ year: g.year - 1, month: g.month }));
+export function yoyPeriodLabel(monthList: GapMonth[]): string | null {
+  if (monthList.length === 0) return null;
+  const shifted = monthList.map((g) => ({ year: g.year - 1, month: g.month }));
   const first = formatGapMonth(shifted[0]);
   const last = formatGapMonth(shifted[shifted.length - 1]);
   return first === last ? first : `${first}–${last}`;
@@ -117,28 +133,28 @@ export function yoyPeriodLabel(gap: GapMonth[]): string | null {
 export function computeForecast(
   method: ForecastMethod,
   series: Map<string, MonthlyPoint>,
-  today: Date,
+  reportDate: Date,
   shipmentDate: Date | null
 ): ForecastResult {
-  const gap = gapMonths(today, shipmentDate);
+  const gapCount = gapMonthsCount(reportDate, shipmentDate);
   switch (method) {
     case "avg12":
-      return avg12Forecast(series, today, gap);
+      return avg12Forecast(series, reportDate, gapCount);
     case "yoy":
-      return yoyForecast(series, gap);
+      return yoyForecast(series, shipmentDate ? yoyMonthList(shipmentDate, gapCount) : []);
     case "trailing3":
-      return trailing3Forecast(series, today, gap);
+      return trailing3Forecast(series, reportDate, gapCount);
   }
 }
 
 export function computeAllForecasts(
   series: Map<string, MonthlyPoint>,
-  today: Date,
+  reportDate: Date,
   shipmentDate: Date | null
 ): Record<ForecastMethod, ForecastResult> {
   return {
-    avg12: computeForecast("avg12", series, today, shipmentDate),
-    yoy: computeForecast("yoy", series, today, shipmentDate),
-    trailing3: computeForecast("trailing3", series, today, shipmentDate),
+    avg12: computeForecast("avg12", series, reportDate, shipmentDate),
+    yoy: computeForecast("yoy", series, reportDate, shipmentDate),
+    trailing3: computeForecast("trailing3", series, reportDate, shipmentDate),
   };
 }

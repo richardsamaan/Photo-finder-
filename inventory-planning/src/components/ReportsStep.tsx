@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAppStore } from "../state/appStore";
+import { useReportDate } from "../state/useReportDate";
 import { FORECAST_METHODS, viewScopes } from "../types";
+import { fmtDateLong } from "../lib/exportUtils";
 import { CategoryStudyReport } from "./reports/CategoryStudyReport";
 import { RiskFlaggingReport } from "./reports/RiskFlaggingReport";
 import { SizeColourReport } from "./reports/SizeColourReport";
@@ -18,11 +20,21 @@ const TABS: { id: Tab; label: string }[] = [
 export function ReportsStep() {
   const store = useAppStore();
   const [tab, setTab] = useState<Tab>("study");
+  const { reportDate, isFallback } = useReportDate();
+  const usesReportDate = tab === "study" || tab === "risk";
 
   return (
     <div>
       <div className="panel">
         <h2>Reports</h2>
+        {usesReportDate && (
+          <div className={isFallback ? "warn-box" : "match-summary"} style={{ marginBottom: 14 }}>
+            <strong>Report date: {fmtDateLong(reportDate)}</strong>
+            {isFallback
+              ? " — no Transaction Date found in SA79, so today's system date was used as a fallback. Forecasts below may be unreliable."
+              : " — the latest Transaction Date in the uploaded SA79 file. Every forecast, Gap months, and Coverage figure on this report is anchored to this date, not the real calendar date."}
+          </div>
+        )}
         {tab === "profitability" ? (
           <p className="muted">
             Profitability has its own Group-by and Bazaar controls below — the View and Forecast method controls here

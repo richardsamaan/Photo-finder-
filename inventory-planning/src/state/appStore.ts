@@ -70,8 +70,6 @@ interface AppState {
   forecastMethod: ForecastMethod;
   setForecastMethod: (m: ForecastMethod) => void;
 
-  today: Date;
-
   reset: () => void;
 }
 
@@ -138,8 +136,6 @@ export const useAppStore = create<AppState>((set) => ({
   setScope: (s) => set({ scope: s }),
   forecastMethod: "avg12",
   setForecastMethod: (m) => set({ forecastMethod: m }),
-
-  today: new Date(),
 
   reset: () =>
     set({

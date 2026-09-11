@@ -106,3 +106,13 @@ export function fmtDate(v: unknown): string {
   if (Number.isNaN(d.getTime())) return "—";
   return d.toISOString().slice(0, 10);
 }
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "31-Aug-2026" style — used for the Category Study / Risk Flagging report-date banner. */
+export function fmtDateLong(v: unknown): string {
+  if (!v) return "—";
+  const d = v instanceof Date ? v : new Date(String(v));
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${String(d.getDate()).padStart(2, "0")}-${MONTH_ABBR[d.getMonth()]}-${d.getFullYear()}`;
+}

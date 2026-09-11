@@ -34,11 +34,16 @@ function computeCoverageMonths(soh: number, forecast: ForecastResult): number | 
   return soh / monthlyRate;
 }
 
-function nextShipmentDateForCategory(category: string, orders: OrderRow[], categoryTable: Map<string, string>, today: Date): Date | null {
+function nextShipmentDateForCategory(
+  category: string,
+  orders: OrderRow[],
+  categoryTable: Map<string, string>,
+  reportDate: Date
+): Date | null {
   let best: Date | null = null;
   for (const o of orders) {
     if (!o.expectedDeliveryDate) continue;
-    if (o.expectedDeliveryDate < today) continue;
+    if (o.expectedDeliveryDate < reportDate) continue;
     const cat = categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)";
     if (cat !== category) continue;
     if (!best || o.expectedDeliveryDate < best) best = o.expectedDeliveryDate;
@@ -52,7 +57,7 @@ export function buildCategoryStudy(
   orders: OrderRow[],
   categoryTable: Map<string, string>,
   scope: ViewScope,
-  today: Date
+  reportDate: Date
 ): CategoryStudyRow[] {
   const scopedSa79 = sa79ForScope(sa79, scope);
   const categories = new Set<string>();
@@ -72,8 +77,8 @@ export function buildCategoryStudy(
     }
     const catSales = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
     const series = aggregateMonthly(catSales);
-    const nextShipmentDate = nextShipmentDateForCategory(category, orders, categoryTable, today);
-    const forecasts = computeAllForecasts(series, today, nextShipmentDate);
+    const nextShipmentDate = nextShipmentDateForCategory(category, orders, categoryTable, reportDate);
+    const forecasts = computeAllForecasts(series, reportDate, nextShipmentDate);
     const coverageMonths: Record<ForecastMethod, number | null> = {} as Record<ForecastMethod, number | null>;
     for (const m of FORECAST_METHODS) {
       coverageMonths[m.id] = computeCoverageMonths(soh, forecasts[m.id]);
@@ -121,10 +126,10 @@ export function buildRiskFlagging(
   orders: OrderRow[],
   categoryTable: Map<string, string>,
   scope: ViewScope,
-  today: Date,
+  reportDate: Date,
   method: ForecastMethod
 ): RiskRow[] {
-  const study = buildCategoryStudy(inv01, sa79, orders, categoryTable, scope, today);
+  const study = buildCategoryStudy(inv01, sa79, orders, categoryTable, scope, reportDate);
   return study.map((row) => {
     const predictedSales = row.forecasts[method].forecastQty;
     return {
@@ -144,7 +149,7 @@ export function buildRiskSkuDrilldown(
   orders: OrderRow[],
   categoryTable: Map<string, string>,
   scope: ViewScope,
-  today: Date,
+  reportDate: Date,
   method: ForecastMethod,
   category: string
 ): RiskSkuRow[] {
@@ -156,10 +161,10 @@ export function buildRiskSkuDrilldown(
     const series = aggregateMonthly(skuSales);
     let nextShipmentDate: Date | null = null;
     for (const o of orders) {
-      if (o.line !== sku.itemCode || !o.expectedDeliveryDate || o.expectedDeliveryDate < today) continue;
+      if (o.line !== sku.itemCode || !o.expectedDeliveryDate || o.expectedDeliveryDate < reportDate) continue;
       if (!nextShipmentDate || o.expectedDeliveryDate < nextShipmentDate) nextShipmentDate = o.expectedDeliveryDate;
     }
-    const forecast = computeForecast(method, series, today, nextShipmentDate);
+    const forecast = computeForecast(method, series, reportDate, nextShipmentDate);
     const predictedSales = forecast.forecastQty;
     return {
       itemCode: sku.itemCode,
