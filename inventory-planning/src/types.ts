@@ -170,7 +170,7 @@ export type ColumnMapping = Record<string, string | null>; // fieldKey -> header
 // Forecasting
 // ---------------------------------------------------------------------------
 
-export type ForecastMethod = "avg12" | "yoy" | "trailing3" | "seasonality";
+export type ForecastMethod = "avg12" | "yoy" | "trailing3";
 
 export const FORECAST_METHODS: { id: ForecastMethod; label: string; explanation: string }[] = [
   {
@@ -188,11 +188,6 @@ export const FORECAST_METHODS: { id: ForecastMethod; label: string; explanation:
     label: "Trailing 3-month",
     explanation:
       "Uses only the most recent 3 months' pace — reacts fastest to a current trend, but can miss an upcoming seasonal shift.",
-  },
-  {
-    id: "seasonality",
-    label: "Seasonality-adjusted",
-    explanation: "Weights the forecast by how strong each specific month usually is, not just a flat average.",
   },
 ];
 

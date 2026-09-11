@@ -19,8 +19,19 @@ export interface CategoryStudyRow {
   sohCost: number;
   nextShipmentDate: Date | null;
   forecasts: Record<ForecastMethod, ForecastResult>;
-  /** SOH / forecast, per method (null when forecast is 0 and SOH is 0 -> not meaningful). */
-  coverageRatio: Record<ForecastMethod, number | null>;
+  /**
+   * How many months current stock covers at the forecasted monthly demand
+   * rate (forecast ÷ gap months), per method — SOH ÷ that rate. Null when
+   * there's no gap to cover, or no demand was forecasted for it.
+   */
+  coverageMonths: Record<ForecastMethod, number | null>;
+}
+
+function computeCoverageMonths(soh: number, forecast: ForecastResult): number | null {
+  if (forecast.gapMonthsCount <= 0) return null;
+  const monthlyRate = forecast.forecastQty / forecast.gapMonthsCount;
+  if (monthlyRate <= 0) return null;
+  return soh / monthlyRate;
 }
 
 function nextShipmentDateForCategory(category: string, orders: OrderRow[], categoryTable: Map<string, string>, today: Date): Date | null {
@@ -63,12 +74,11 @@ export function buildCategoryStudy(
     const series = aggregateMonthly(catSales);
     const nextShipmentDate = nextShipmentDateForCategory(category, orders, categoryTable, today);
     const forecasts = computeAllForecasts(series, today, nextShipmentDate);
-    const coverageRatio: Record<ForecastMethod, number | null> = {} as Record<ForecastMethod, number | null>;
+    const coverageMonths: Record<ForecastMethod, number | null> = {} as Record<ForecastMethod, number | null>;
     for (const m of FORECAST_METHODS) {
-      const f = forecasts[m.id];
-      coverageRatio[m.id] = f.forecastQty > 0 ? soh / f.forecastQty : soh > 0 ? null : null;
+      coverageMonths[m.id] = computeCoverageMonths(soh, forecasts[m.id]);
     }
-    out.push({ category, soh, sohCost, nextShipmentDate, forecasts, coverageRatio });
+    out.push({ category, soh, sohCost, nextShipmentDate, forecasts, coverageMonths });
   }
   return out.sort((a, b) => a.category.localeCompare(b.category));
 }

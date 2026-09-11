@@ -3,7 +3,8 @@ import { useAppStore } from "../../state/appStore";
 import { useCategoryTable } from "../../state/useCategoryTable";
 import { buildCategoryStudy } from "../../lib/reports";
 import { FORECAST_METHODS } from "../../types";
-import { exportToExcel, exportToPdf, fmtDate, fmtNumber, fmtPct } from "../../lib/exportUtils";
+import { gapMonths, yoyPeriodLabel } from "../../lib/forecast";
+import { exportToExcel, exportToPdf, fmtDate, fmtMonths, fmtNumber } from "../../lib/exportUtils";
 
 export function CategoryStudyReport() {
   const store = useAppStore();
@@ -16,18 +17,31 @@ export function CategoryStudyReport() {
   );
 
   const methodLabel = FORECAST_METHODS.find((m) => m.id === store.forecastMethod)!.label;
+  const includesYoy = compareAll || store.forecastMethod === "yoy";
+
+  function yoyLabelFor(nextShipmentDate: Date | null): string | null {
+    return yoyPeriodLabel(gapMonths(store.today, nextShipmentDate));
+  }
 
   function exportRows() {
-    return rows.map((r) => ({
-      category: r.category,
-      soh: r.soh,
-      sohCost: r.sohCost,
-      nextShipmentDate: r.nextShipmentDate,
-      gapMonths: r.forecasts[store.forecastMethod].gapMonthsCount,
-      forecastQty: Math.round(r.forecasts[store.forecastMethod].forecastQty * 10) / 10,
-      coveragePct: r.coverageRatio[store.forecastMethod] != null ? r.coverageRatio[store.forecastMethod]! * 100 : null,
-      ...Object.fromEntries(FORECAST_METHODS.map((m) => [`forecast_${m.id}`, Math.round(r.forecasts[m.id].forecastQty * 10) / 10])),
-    }));
+    return rows.map((r) => {
+      const yoyLabel = yoyLabelFor(r.nextShipmentDate);
+      return {
+        category: r.category,
+        soh: r.soh,
+        sohCost: r.sohCost,
+        nextShipmentDate: r.nextShipmentDate,
+        gapMonths: r.forecasts[store.forecastMethod].gapMonthsCount,
+        forecastQty: Math.round(r.forecasts[store.forecastMethod].forecastQty * 10) / 10,
+        forecastQtyDisplay:
+          store.forecastMethod === "yoy" && yoyLabel
+            ? `${fmtNumber(r.forecasts[store.forecastMethod].forecastQty)} (${yoyLabel})`
+            : fmtNumber(r.forecasts[store.forecastMethod].forecastQty),
+        coverageMonths: r.coverageMonths[store.forecastMethod],
+        yoyPeriod: yoyLabel ?? "",
+        ...Object.fromEntries(FORECAST_METHODS.map((m) => [`forecast_${m.id}`, Math.round(r.forecasts[m.id].forecastQty * 10) / 10])),
+      };
+    });
   }
 
   function handleExcel() {
@@ -40,7 +54,8 @@ export function CategoryStudyReport() {
       ...(compareAll
         ? FORECAST_METHODS.map((m) => ({ header: `Forecast — ${m.label}`, key: `forecast_${m.id}` }))
         : [{ header: `Forecast (${methodLabel})`, key: "forecastQty" }]),
-      { header: "Coverage %", key: "coveragePct" },
+      ...(includesYoy ? [{ header: "YoY period used", key: "yoyPeriod" }] : []),
+      { header: "Coverage (months)", key: "coverageMonths" },
     ];
     exportToExcel(`category_study_${store.scope}.xlsx`, "Category Study", columns, exportRows());
   }
@@ -51,8 +66,8 @@ export function CategoryStudyReport() {
       { header: "SOH", key: "soh", format: fmtNumber },
       { header: "Next shipment", key: "nextShipmentDate", format: fmtDate },
       { header: "Gap mo.", key: "gapMonths" },
-      { header: `Forecast (${methodLabel})`, key: "forecastQty", format: fmtNumber },
-      { header: "Coverage %", key: "coveragePct", format: fmtPct },
+      { header: `Forecast (${methodLabel})`, key: "forecastQtyDisplay" },
+      { header: "Coverage (months)", key: "coverageMonths", format: fmtMonths },
     ];
     exportToPdf(`category_study_${store.scope}.pdf`, "Category Study", `Scope: ${store.scope} — Method: ${methodLabel}`, columns, exportRows());
   }
@@ -61,8 +76,8 @@ export function CategoryStudyReport() {
     <div className="panel">
       <div className="export-row">
         <label style={{ fontSize: 13, marginRight: "auto" }}>
-          <input type="checkbox" checked={compareAll} onChange={(e) => setCompareAll(e.target.checked)} /> Compare all 4
-          methods side by side
+          <input type="checkbox" checked={compareAll} onChange={(e) => setCompareAll(e.target.checked)} /> Compare all{" "}
+          {FORECAST_METHODS.length} methods side by side
         </label>
         <button className="secondary" onClick={handleExcel}>
           Export Excel
@@ -86,25 +101,44 @@ export function CategoryStudyReport() {
               ) : (
                 <th>Forecast ({methodLabel})</th>
               )}
-              <th>Coverage %</th>
+              <th>Coverage (months)</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.category}>
-                <td>{r.category}</td>
-                <td>{fmtNumber(r.soh)}</td>
-                <td>{fmtNumber(r.sohCost)}</td>
-                <td>{fmtDate(r.nextShipmentDate)}</td>
-                <td>{r.forecasts[store.forecastMethod].gapMonthsCount}</td>
-                {compareAll ? (
-                  FORECAST_METHODS.map((m) => <td key={m.id}>{fmtNumber(r.forecasts[m.id].forecastQty)}</td>)
-                ) : (
-                  <td>{fmtNumber(r.forecasts[store.forecastMethod].forecastQty)}</td>
-                )}
-                <td>{fmtPct(r.coverageRatio[store.forecastMethod] != null ? r.coverageRatio[store.forecastMethod]! * 100 : null)}</td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const yoyLabel = yoyLabelFor(r.nextShipmentDate);
+              return (
+                <tr key={r.category}>
+                  <td>{r.category}</td>
+                  <td>{fmtNumber(r.soh)}</td>
+                  <td>{fmtNumber(r.sohCost)}</td>
+                  <td>{fmtDate(r.nextShipmentDate)}</td>
+                  <td>{r.forecasts[store.forecastMethod].gapMonthsCount}</td>
+                  {compareAll ? (
+                    FORECAST_METHODS.map((m) => (
+                      <td key={m.id}>
+                        {fmtNumber(r.forecasts[m.id].forecastQty)}
+                        {m.id === "yoy" && yoyLabel && (
+                          <div className="muted" style={{ fontSize: 11 }}>
+                            {yoyLabel}
+                          </div>
+                        )}
+                      </td>
+                    ))
+                  ) : (
+                    <td>
+                      {fmtNumber(r.forecasts[store.forecastMethod].forecastQty)}
+                      {store.forecastMethod === "yoy" && yoyLabel && (
+                        <div className="muted" style={{ fontSize: 11 }}>
+                          {yoyLabel}
+                        </div>
+                      )}
+                    </td>
+                  )}
+                  <td>{fmtMonths(r.coverageMonths[store.forecastMethod])}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

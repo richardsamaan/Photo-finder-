@@ -94,31 +94,24 @@ function trailing3Forecast(series: Map<string, MonthlyPoint>, today: Date, gap: 
   };
 }
 
-function seasonalityForecast(series: Map<string, MonthlyPoint>, today: Date, gap: GapMonth[]): ForecastResult {
-  const monthTotals = new Map<number, number>(); // 1-12 -> total qty across all history
-  let grandTotal = 0;
-  const yearsPerMonth = new Map<number, number>();
-  for (const p of series.values()) {
-    monthTotals.set(p.month, (monthTotals.get(p.month) ?? 0) + p.qty);
-    yearsPerMonth.set(p.month, (yearsPerMonth.get(p.month) ?? 0) + 1);
-    grandTotal += p.qty;
-  }
-  const annual = trailing12(series, today).qty;
-  if (grandTotal === 0) {
-    return { method: "seasonality", forecastQty: 0, gapMonthsCount: gap.length, lowConfidence: true, note: "No sales history available." };
-  }
-  let shareSum = 0;
-  for (const g of gap) {
-    shareSum += (monthTotals.get(g.month) ?? 0) / grandTotal;
-  }
-  const yearsOfHistory = Math.max(1, Math.round([...series.keys()].length / 12));
-  return {
-    method: "seasonality",
-    forecastQty: annual * shareSum,
-    gapMonthsCount: gap.length,
-    lowConfidence: yearsOfHistory < 2,
-    note: yearsOfHistory < 2 ? "Less than a full year of history — seasonal shape is a rough estimate." : undefined,
-  };
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatGapMonth(g: GapMonth): string {
+  return `${MONTH_ABBR[g.month - 1]}${String(g.year).slice(-2)}`;
+}
+
+/**
+ * The calendar months YoY actually pulls sales from — the gap period shifted
+ * back one year (e.g. gap = Sep26+Oct26 -> "Sep25–Oct25"). Computed fresh
+ * from each category/SKU's own gap rather than a static label, since two
+ * rows with different next-shipment dates use different YoY months.
+ */
+export function yoyPeriodLabel(gap: GapMonth[]): string | null {
+  if (gap.length === 0) return null;
+  const shifted = gap.map((g) => ({ year: g.year - 1, month: g.month }));
+  const first = formatGapMonth(shifted[0]);
+  const last = formatGapMonth(shifted[shifted.length - 1]);
+  return first === last ? first : `${first}–${last}`;
 }
 
 export function computeForecast(
@@ -135,8 +128,6 @@ export function computeForecast(
       return yoyForecast(series, gap);
     case "trailing3":
       return trailing3Forecast(series, today, gap);
-    case "seasonality":
-      return seasonalityForecast(series, today, gap);
   }
 }
 
@@ -149,6 +140,5 @@ export function computeAllForecasts(
     avg12: computeForecast("avg12", series, today, shipmentDate),
     yoy: computeForecast("yoy", series, today, shipmentDate),
     trailing3: computeForecast("trailing3", series, today, shipmentDate),
-    seasonality: computeForecast("seasonality", series, today, shipmentDate),
   };
 }

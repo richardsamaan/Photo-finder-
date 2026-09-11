@@ -11,7 +11,7 @@ This is **Phase 1 of 4**. It delivers:
   Colour Key file
 - SKU matching and category resolution (session-only, with an optional
   download/upload of manually-made category decisions)
-- **Category Study** report (coverage/forecast, 4 selectable methods)
+- **Category Study** report (coverage/forecast, 3 selectable methods)
 - **Risk Flagging** report (category-level, with SKU-level drill-down)
 - **Size/Colour Suggestion %** report
 - **Profitability** report — a flexible SKU-level grouping engine (Category or
@@ -80,7 +80,7 @@ static files (GitHub Pages included), with no server component.
    it back in a future session to skip re-asking about those SKUs.
 4. **View reports**, switching between the 3 individual locations and the
    combined (whole-business) view, and — for Category Study and Risk
-   Flagging — between the four forecast methods (with a plain-language
+   Flagging — between the three forecast methods (with a plain-language
    explanation of each shown in-app). Every report exports to Excel and PDF.
 
 ## Assumptions worth knowing about
@@ -108,7 +108,23 @@ interpretations this build made, called out so they're easy to revisit:
   incoming stock, used the same way regardless of the selected location view.
 - **Gap months** (the period a forecast has to cover): every calendar month
   from today's month up to — but excluding — the shipment's month, per the
-  brief's own YoY example (today Sep, shipment Nov → Sep+Oct).
+  brief's own YoY example (today Sep, shipment Nov → Sep+Oct). All 3 forecast
+  methods (Average/12, YoY, Trailing 3-month) compute demand for this gap
+  period specifically, never a flat full-year figure. A 4th method
+  (Seasonality-adjusted) was removed: built from a single year of history, it
+  reduces to summing each gap month's share of an annual total that was
+  itself derived from those same months — algebraically identical to YoY, so
+  it never actually differed from it.
+- **Category Study's Coverage (months)**: `SOH ÷ (Forecast ÷ Gap months)` —
+  the forecast is first converted to a monthly demand rate (dividing by how
+  many gap months it covers), then SOH is measured against that rate. This
+  matters for any gap longer than 1 month: naively dividing SOH by the raw
+  multi-month forecast total understates how long stock actually lasts.
+  Shown as "X.X months" (one decimal). The YoY column additionally shows
+  which actual calendar months it pulled from (e.g. "Sep25–Oct25"), computed
+  fresh per row from that row's own gap shifted back a year — two categories
+  with different next-shipment dates use different YoY months, so this is
+  never a single static label for the whole report.
 - **Sell-through %** (Profitability report): Qty Sold ÷ (Qty Sold + current
   SOH), since no explicit "beginning inventory" field exists in the source
   files.

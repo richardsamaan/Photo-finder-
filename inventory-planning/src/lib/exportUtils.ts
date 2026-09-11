@@ -93,6 +93,13 @@ export function fmtPct(v: unknown): string {
   return `${n.toFixed(1)}%`;
 }
 
+export function fmtMonths(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return `${n.toFixed(1)} months`;
+}
+
 export function fmtDate(v: unknown): string {
   if (!v) return "—";
   const d = v instanceof Date ? v : new Date(String(v));
