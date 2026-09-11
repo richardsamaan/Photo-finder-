@@ -99,6 +99,33 @@ export function toNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Parse a text-formatted date string. `cellDates: true` only converts
+ * genuinely Excel-date-typed cells to JS Dates — text-formatted date strings
+ * (common in SAP-style exports, e.g. SA79 "Transaction Date" as "31/08/2026"
+ * or Order-on-the-way "Expected delivery date" as "11.01.2027") pass through
+ * as raw strings. Both real formats seen are day-first (DD/MM/YYYY or
+ * DD.MM.YYYY); JS's native `new Date(string)` parsing assumes US month-first
+ * order, which either misparses these (day/month swapped) or throws them out
+ * as Invalid Date entirely. Try day-first D/M/Y (or D.M.Y) explicitly before
+ * falling back to native parsing for other formats (e.g. ISO "2026-08-31").
+ */
+function parseDateString(s: string): Date | null {
+  const trimmed = s.trim();
+  const dayFirst = trimmed.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
+  if (dayFirst) {
+    const day = Number(dayFirst[1]);
+    const month = Number(dayFirst[2]);
+    const year = Number(dayFirst[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(Date.UTC(year, month - 1, day));
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function toDate(v: unknown): Date | null {
   if (v == null || v === "") return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v;
@@ -108,6 +135,5 @@ export function toDate(v: unknown): Date | null {
     if (!d) return null;
     return new Date(Date.UTC(d.y, d.m - 1, d.d, d.H ?? 0, d.M ?? 0, d.S ?? 0));
   }
-  const parsed = new Date(String(v));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateString(String(v));
 }

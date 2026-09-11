@@ -217,15 +217,19 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   the per-row override — still one explicit user action per the brief's
   "must confirm, never silently trust" requirement, just not one click per
   SKU. Rows with no suggestion at all still need individual attention.
-- **The real SA79 file's latest Transaction Date is 2026-12-08, not
-  2026-08-31** — despite the file being titled "since opening till
-  31-Aug-2026" and its own header claiming that same range, it genuinely
-  contains 1,155 valid, non-garbage rows dated after Aug 31 (real store
-  names, real item codes), the latest on Dec 8. Since the report date is
-  defined as "the latest Transaction Date found in the file," this is what
-  the app correctly shows when those files are loaded — worth knowing before
-  trusting the report date at a glance, since it doesn't match what the
-  filename/title implies.
+- **Text-formatted dates were silently misparsed.** SheetJS's `cellDates:
+  true` only converts genuinely Excel-date-typed cells to JS `Date`s — text-
+  formatted date strings (common in these SAP-style exports) pass through as
+  raw strings. Both SA79's "Transaction Date" (DD/MM/YYYY, e.g.
+  "31/08/2026") and Order-on-the-way's "Expected delivery date" (DD.MM.YYYY,
+  e.g. "11.01.2027") are day-first, which JS's native `new Date(string)`
+  parsing — US month-first by default — either threw out as `Invalid Date`
+  (day > 12) or silently misread with day/month swapped (day ≤ 12). An
+  earlier version of this doc claimed SA79's real max Transaction Date was
+  2026-12-08 based on this same flawed parsing; that was wrong. With
+  day-first parsing applied explicitly before falling back to native
+  parsing, SA79's true latest Transaction Date is **2026-08-31**, exactly
+  matching the file's own title and header claim.
 
 With those fixes, all four real files loaded and processed correctly
 end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible
