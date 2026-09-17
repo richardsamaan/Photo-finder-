@@ -75,13 +75,28 @@ static files (GitHub Pages included), with no server component.
    files disagree is flagged as a conflict you must resolve by hand — it's
    never auto-resolved. Any brand-new SKU from "Order on the way" gets its
    `HB_Warehouse_ProdGrp` value pre-filled as a suggestion, but you must
-   confirm or override it before it's used in any report. You can download
-   your manual decisions as a small Item Code | Category Excel file and load
-   it back in a future session to skip re-asking about those SKUs.
+   confirm or override it before it's used in any report. **Sub Category**
+   is resolved exactly the same way, one level below Category — its own SKU →
+   Sub Category table, its own conflict list, its own new-item confirmation
+   (using the order file's own "Sub Category" column as the suggestion) — and
+   is never a separate top-level filter, only a drill-down from a Category
+   row. You can download your manual decisions (Category + Sub Category
+   together) as a small Item Code | Category | Sub Category Excel file and
+   load it back in a future session to skip re-asking about those SKUs. Note
+   that, like Category, a genuine conflict between the source files
+   themselves re-surfaces every session even after loading a previous
+   decision — the previous decision only auto-resolves a SKU that no longer
+   has a live disagreement in this session's files (e.g. a brand-new SKU
+   confirmed last time).
 4. **View reports**, switching between the 3 individual locations and the
    combined (whole-business) view, and — for Category Study and Risk
    Flagging — between the three forecast methods (with a plain-language
    explanation of each shown in-app). Every report exports to Excel and PDF.
+   Category Study, Risk Flagging, Size/Colour Suggestion %, and Profitability
+   (in its Category grouping) all let you drill from a Category row into its
+   Sub Categories, computed fresh at that level rather than inherited from
+   the parent — Risk Flagging goes one level further, from Sub Category into
+   individual SKUs.
 
 ## Assumptions worth knowing about
 

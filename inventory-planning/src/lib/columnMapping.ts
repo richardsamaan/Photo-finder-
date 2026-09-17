@@ -9,6 +9,7 @@ export const INV01_FIELDS: FieldSpec[] = [
   { key: "brand", label: "Brand", required: false, aliases: ["brand"] },
   { key: "department", label: "Department", required: false, aliases: ["department", "dept"] },
   { key: "category", label: "Category", required: true, aliases: ["category"] },
+  { key: "subCategory", label: "Sub Category", required: false, aliases: ["sub category", "subcategory"] },
   { key: "itemCode", label: "Item Code", required: true, aliases: ["item code", "itemcode", "sku", "barcode"] },
   { key: "reference", label: "Reference", required: false, aliases: ["reference", "ref"] },
   { key: "itemDesc", label: "Item Desc", required: false, aliases: ["item desc", "description", "item description"] },
@@ -47,6 +48,7 @@ export const SA79_FIELDS: FieldSpec[] = [
     // leave this unmapped by default and let the user opt in explicitly if they want it.
     aliases: [],
   },
+  { key: "subCategory", label: "Sub Category", required: false, aliases: ["sub category", "subcategory"] },
   { key: "itemSize", label: "Item Size", required: false, aliases: ["item size", "size"] },
   { key: "rtp", label: "RTP", required: false, aliases: ["rtp", "retail price"] },
   { key: "costPrice", label: "Cost Price", required: false, aliases: ["cost price"] },
@@ -80,6 +82,14 @@ export const ORDER_FIELDS: FieldSpec[] = [
     aliases: ["pending units value", "pending unites value", "units value"],
   },
   { key: "suggestedCategory", label: "HB_Warehouse_ProdGrp", required: false, aliases: ["hb_warehouse_prodgrp", "warehouse prodgrp", "prodgrp"] },
+  {
+    key: "suggestedSubCategory",
+    label: "Sub Category",
+    required: false,
+    // Same field name as INV01/SA79, but (like HB_Warehouse_ProdGrp above) only ever
+    // a suggestion here — the resolved SKU -> Sub Category table is built from INV01/SA79 only.
+    aliases: ["sub category", "subcategory"],
+  },
 ];
 
 export const COLOUR_KEY_FIELDS: FieldSpec[] = [

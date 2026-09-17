@@ -37,6 +37,7 @@ export function parseInv01(
         brand: toText(get(row, mapping, "brand")),
         department: toText(get(row, mapping, "department")),
         category: toText(get(row, mapping, "category")),
+        subCategory: toText(get(row, mapping, "subCategory")),
         reference: toText(get(row, mapping, "reference")),
         itemDesc: toText(get(row, mapping, "itemDesc")),
         season: toText(get(row, mapping, "season")),
@@ -91,6 +92,7 @@ export function parseSa79(preview: SheetPreview, mapping: ColumnMapping, colourK
         reference,
         season: toText(get(row, mapping, "season")),
         category: toText(get(row, mapping, "category")),
+        subCategory: toText(get(row, mapping, "subCategory")),
         itemSize: toText(get(row, mapping, "itemSize")) || parsed.size || "",
         rtp: toNumber(get(row, mapping, "rtp")),
         costPrice: toNumber(get(row, mapping, "costPrice")),
@@ -129,6 +131,7 @@ export function parseOrderOnTheWay(
         pendingUnitsQty: toNumber(get(row, mapping, "pendingUnitsQty")) ?? 0,
         pendingUnitsValue: toNumber(get(row, mapping, "pendingUnitsValue")) ?? 0,
         suggestedCategory: toText(get(row, mapping, "suggestedCategory")),
+        suggestedSubCategory: toText(get(row, mapping, "suggestedSubCategory")),
       };
     })
     .filter((r): r is OrderRow => r !== null);

@@ -65,6 +65,12 @@ interface AppState {
   previousDecisionsMap: Map<string, string>;
   setPreviousDecisionsMap: (m: Map<string, string>) => void;
 
+  manualSubCategoryOverrides: Map<string, string>;
+  setManualSubCategoryOverride: (itemCode: string, subCategory: string) => void;
+  setManualSubCategoryOverrides: (entries: [string, string][]) => void;
+  previousSubCategoryDecisionsMap: Map<string, string>;
+  setPreviousSubCategoryDecisionsMap: (m: Map<string, string>) => void;
+
   scope: ViewScope;
   setScope: (s: ViewScope) => void;
   forecastMethod: ForecastMethod;
@@ -132,6 +138,22 @@ export const useAppStore = create<AppState>((set) => ({
   previousDecisionsMap: new Map(),
   setPreviousDecisionsMap: (m) => set({ previousDecisionsMap: m }),
 
+  manualSubCategoryOverrides: new Map(),
+  setManualSubCategoryOverride: (itemCode, subCategory) =>
+    set((state) => {
+      const next = new Map(state.manualSubCategoryOverrides);
+      next.set(itemCode, subCategory);
+      return { manualSubCategoryOverrides: next };
+    }),
+  setManualSubCategoryOverrides: (entries) =>
+    set((state) => {
+      const next = new Map(state.manualSubCategoryOverrides);
+      for (const [itemCode, subCategory] of entries) next.set(itemCode, subCategory);
+      return { manualSubCategoryOverrides: next };
+    }),
+  previousSubCategoryDecisionsMap: new Map(),
+  setPreviousSubCategoryDecisionsMap: (m) => set({ previousSubCategoryDecisionsMap: m }),
+
   scope: COMBINED,
   setScope: (s) => set({ scope: s }),
   forecastMethod: "avg12",
@@ -152,5 +174,7 @@ export const useAppStore = create<AppState>((set) => ({
       colourKeyEntries: [],
       manualOverrides: new Map(),
       previousDecisionsMap: new Map(),
+      manualSubCategoryOverrides: new Map(),
+      previousSubCategoryDecisionsMap: new Map(),
     }),
 }));

@@ -70,14 +70,15 @@ export function UploadStep() {
 
       <FileDropzone
         label="Load previous category decisions (optional)"
-        hint="A small Item Code | Category file you downloaded from a previous session. Pre-fills those SKUs so you're not re-asked."
+        hint="A small Item Code | Category | Sub Category file you downloaded from a previous session. Pre-fills those SKUs so you're not re-asked."
         fileName={store.previousDecisionsFile?.file.name ?? null}
         onFile={(f) =>
           handle(
             "prevDecisions",
             async () => {
-              const map = await loadPreviousDecisions(f);
-              store.setPreviousDecisionsMap(map);
+              const { category, subCategory } = await loadPreviousDecisions(f);
+              store.setPreviousDecisionsMap(category);
+              store.setPreviousSubCategoryDecisionsMap(subCategory);
               return f;
             },
             (file) => store.setPreviousDecisionsFile({ file, grid: [], headerRowIndex: 0, preview: { headers: [], headerRowIndex: 0, rows: [], sampleRows: [] }, mapping: {} })
@@ -86,10 +87,14 @@ export function UploadStep() {
         onClear={() => {
           store.setPreviousDecisionsFile(null);
           store.setPreviousDecisionsMap(new Map());
+          store.setPreviousSubCategoryDecisionsMap(new Map());
         }}
       />
-      {store.previousDecisionsMap.size > 0 && (
-        <p className="muted">Loaded {store.previousDecisionsMap.size} previously-decided SKU categories.</p>
+      {(store.previousDecisionsMap.size > 0 || store.previousSubCategoryDecisionsMap.size > 0) && (
+        <p className="muted">
+          Loaded {store.previousDecisionsMap.size} previously-decided SKU categories and{" "}
+          {store.previousSubCategoryDecisionsMap.size} previously-decided sub categories.
+        </p>
       )}
 
       <div className="actions-row">

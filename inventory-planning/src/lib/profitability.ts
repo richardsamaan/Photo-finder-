@@ -1,5 +1,5 @@
 import { ALL_LOCATIONS, type Inv01Row, type LocationId, type LocationMeta, type Sa79Row } from "../types";
-import { categoryOf } from "./reports";
+import { categoryOf, subCategoryOf } from "./reports";
 
 // ---------------------------------------------------------------------------
 // Report 4: Profitability — a SKU-level calculation engine, not a fixed
@@ -12,6 +12,7 @@ import { categoryOf } from "./reports";
 export interface SkuProfitFact {
   itemCode: string;
   category: string;
+  subCategory: string;
   location: LocationId;
   season: string;
   qtySold: number;
@@ -20,13 +21,14 @@ export interface SkuProfitFact {
   costValue: number;
 }
 
-export function buildSkuProfitFacts(sa79: Sa79Row[], categoryTable: Map<string, string>): SkuProfitFact[] {
+export function buildSkuProfitFacts(sa79: Sa79Row[], categoryTable: Map<string, string>, subCategoryTable: Map<string, string>): SkuProfitFact[] {
   const facts: SkuProfitFact[] = [];
   for (const r of sa79) {
     if (!r.location) continue; // unmatched Store Name — can't attribute to a location, excluded rather than silently mis-grouped
     facts.push({
       itemCode: r.itemCode,
       category: r.category || categoryOf(r.itemCode, categoryTable),
+      subCategory: r.subCategory || subCategoryOf(r.itemCode, subCategoryTable),
       location: r.location,
       season: r.season,
       qtySold: r.qty,
@@ -68,6 +70,23 @@ function sohForCategory(inv01: Inv01Row[], categoryTable: Map<string, string>, c
   return total;
 }
 
+function sohForSubCategory(
+  inv01: Inv01Row[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  category: string,
+  subCategory: string,
+  locationIds: LocationId[]
+): number {
+  let total = 0;
+  for (const r of inv01) {
+    if ((r.category || categoryOf(r.itemCode, categoryTable)) !== category) continue;
+    if ((r.subCategory || subCategoryOf(r.itemCode, subCategoryTable)) !== subCategory) continue;
+    for (const loc of locationIds) total += r.stock[loc]?.curStk ?? 0;
+  }
+  return total;
+}
+
 function sohForLocation(inv01: Inv01Row[], location: LocationId): number {
   let total = 0;
   for (const r of inv01) total += r.stock[location]?.curStk ?? 0;
@@ -93,6 +112,32 @@ export function groupProfitabilityByCategory(
       const catFacts = scoped.filter((f) => f.category === category);
       const soh = sohForCategory(inv01, categoryTable, category, locationIds);
       return aggregate(category, category, catFacts, soh);
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/** Sub Category drill-down for Profitability's Category grouping — restricted to one parent Category, grouped by Sub Category. */
+export function groupProfitabilitySubCategoryWithinCategory(
+  facts: SkuProfitFact[],
+  inv01: Inv01Row[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  locationIds: LocationId[],
+  category: string
+): ProfitGroupRow[] {
+  const locSet = new Set(locationIds);
+  const scoped = facts.filter((f) => locSet.has(f.location) && f.category === category);
+  const inCategoryInv01 = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+
+  const subCategories = new Set<string>();
+  for (const r of inCategoryInv01) subCategories.add(r.subCategory || subCategoryOf(r.itemCode, subCategoryTable));
+  for (const f of scoped) subCategories.add(f.subCategory);
+
+  return [...subCategories]
+    .map((subCategory) => {
+      const subCatFacts = scoped.filter((f) => f.subCategory === subCategory);
+      const soh = sohForSubCategory(inv01, categoryTable, subCategoryTable, category, subCategory, locationIds);
+      return aggregate(subCategory, subCategory, subCatFacts, soh);
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 }

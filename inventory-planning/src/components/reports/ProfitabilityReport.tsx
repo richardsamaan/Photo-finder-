@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useAppStore } from "../../state/appStore";
 import { useCategoryTable } from "../../state/useCategoryTable";
+import { useSubCategoryTable } from "../../state/useSubCategoryTable";
 import { ALL_LOCATIONS } from "../../types";
 import {
   BAZAAR_LOCATION,
@@ -8,6 +9,7 @@ import {
   buildSkuProfitFacts,
   groupProfitabilityByCategory,
   groupProfitabilityByLocation,
+  groupProfitabilitySubCategoryWithinCategory,
   type ProfitGroupRow,
 } from "../../lib/profitability";
 import { exportToExcel, exportToPdf, fmtMoney, fmtNumber, fmtPct } from "../../lib/exportUtils";
@@ -17,10 +19,15 @@ type GroupBy = "category" | "location";
 export function ProfitabilityReport() {
   const store = useAppStore();
   const categoryTable = useCategoryTable();
+  const subCategoryTable = useSubCategoryTable();
   const [groupBy, setGroupBy] = useState<GroupBy>("category");
   const [includeBazaar, setIncludeBazaar] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const facts = useMemo(() => buildSkuProfitFacts(store.sa79Rows, categoryTable), [store.sa79Rows, categoryTable]);
+  const facts = useMemo(
+    () => buildSkuProfitFacts(store.sa79Rows, categoryTable, subCategoryTable),
+    [store.sa79Rows, categoryTable, subCategoryTable]
+  );
   const coreLocationIds = useMemo(() => CORE_LOCATIONS.map((l) => l.id), []);
   const allLocationIds = useMemo(() => ALL_LOCATIONS.map((l) => l.id), []);
 
@@ -31,6 +38,21 @@ export function ProfitabilityReport() {
   const categoryIncl = useMemo(
     () => (groupBy === "category" && includeBazaar ? groupProfitabilityByCategory(facts, store.inv01Rows, categoryTable, allLocationIds) : []),
     [groupBy, includeBazaar, facts, store.inv01Rows, categoryTable, allLocationIds]
+  );
+
+  const subCategoryCore = useMemo(
+    () =>
+      groupBy === "category" && expanded
+        ? groupProfitabilitySubCategoryWithinCategory(facts, store.inv01Rows, categoryTable, subCategoryTable, coreLocationIds, expanded)
+        : [],
+    [groupBy, expanded, facts, store.inv01Rows, categoryTable, subCategoryTable, coreLocationIds]
+  );
+  const subCategoryIncl = useMemo(
+    () =>
+      groupBy === "category" && expanded && includeBazaar
+        ? groupProfitabilitySubCategoryWithinCategory(facts, store.inv01Rows, categoryTable, subCategoryTable, allLocationIds, expanded)
+        : [],
+    [groupBy, expanded, includeBazaar, facts, store.inv01Rows, categoryTable, subCategoryTable, allLocationIds]
   );
 
   const locationRows = useMemo(() => {
@@ -72,6 +94,37 @@ export function ProfitabilityReport() {
       }
       return row;
     });
+  }
+
+  function subCategoryExportRows(): Record<string, unknown>[] {
+    const inclByKey = new Map(subCategoryIncl.map((r) => [r.key, r]));
+    return subCategoryCore.map((r) => {
+      const incl = inclByKey.get(r.key);
+      const row: Record<string, unknown> = {
+        subCategory: r.label,
+        qtySoldCore: r.qtySold,
+        marginPctCore: r.marginPct,
+        marginValueCore: r.marginValue,
+        sellThroughPctCore: r.sellThroughPct,
+      };
+      if (includeBazaar) {
+        row.qtySoldIncl = incl?.qtySold ?? 0;
+        row.marginPctIncl = incl?.marginPct ?? null;
+        row.marginValueIncl = incl?.marginValue ?? 0;
+        row.sellThroughPctIncl = incl?.sellThroughPct ?? null;
+      }
+      return row;
+    });
+  }
+
+  function handleSubExcel() {
+    if (!expanded) return;
+    const columns = [
+      { header: "Sub Category", key: "subCategory" },
+      ...metricColumns("Core", includeBazaar ? " (core)" : ""),
+      ...(includeBazaar ? metricColumns("Incl", " (incl. clearance)") : []),
+    ];
+    exportToExcel(`profitability_${expanded}_subcategories.xlsx`, "Profitability by Sub Category", columns, subCategoryExportRows());
   }
 
   function locationExportRows(): Record<string, unknown>[] {
@@ -183,6 +236,7 @@ export function ProfitabilityReport() {
           <table>
             <thead>
               <tr>
+                <th rowSpan={2}></th>
                 <th rowSpan={2}>Category</th>
                 <th colSpan={4}>{includeBazaar ? "Core retail" : "Core retail (locations 1–3)"}</th>
                 {includeBazaar && <th colSpan={4}>Incl. clearance (+ Bazaar)</th>}
@@ -206,21 +260,62 @@ export function ProfitabilityReport() {
               {categoryCore.map((core) => {
                 const incl = categoryIncl.find((r) => r.key === core.key);
                 return (
-                  <tr key={core.key}>
-                    <td>{core.label}</td>
-                    <td>{fmtNumber(core.qtySold)}</td>
-                    <td>{fmtPct(core.marginPct)}</td>
-                    <td>{fmtMoney(core.marginValue)}</td>
-                    <td>{fmtPct(core.sellThroughPct)}</td>
-                    {includeBazaar && (
-                      <>
-                        <td>{fmtNumber(incl?.qtySold ?? 0)}</td>
-                        <td>{fmtPct(incl?.marginPct ?? null)}</td>
-                        <td>{fmtMoney(incl?.marginValue ?? 0)}</td>
-                        <td>{fmtPct(incl?.sellThroughPct ?? null)}</td>
-                      </>
+                  <Fragment key={core.key}>
+                    <tr>
+                      <td>
+                        <button className="small" onClick={() => setExpanded(expanded === core.key ? null : core.key)}>
+                          {expanded === core.key ? "Hide" : "Drill into Sub Categories"}
+                        </button>
+                      </td>
+                      <ProfitRowCells row={core} inclRow={incl} includeBazaar={includeBazaar} />
+                    </tr>
+                    {expanded === core.key && (
+                      <tr>
+                        <td colSpan={includeBazaar ? 10 : 6} style={{ background: "#fafbfc" }}>
+                          <div className="export-row">
+                            <span className="muted" style={{ marginRight: "auto" }}>
+                              Sub Category detail for {core.label}
+                            </span>
+                            <button className="small" onClick={handleSubExcel}>
+                              Export Sub Category list (Excel)
+                            </button>
+                          </div>
+                          <div className="table-wrap">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Sub Category</th>
+                                  <th>Qty sold</th>
+                                  <th>Margin %</th>
+                                  <th>Margin value</th>
+                                  <th>Sell-through %</th>
+                                  {includeBazaar && (
+                                    <>
+                                      <th>Qty sold</th>
+                                      <th>Margin %</th>
+                                      <th>Margin value</th>
+                                      <th>Sell-through %</th>
+                                    </>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {subCategoryCore.map((sub) => {
+                                  const subIncl = subCategoryIncl.find((r) => r.key === sub.key);
+                                  return (
+                                    <tr key={sub.key}>
+                                      <ProfitRowCells row={sub} inclRow={subIncl} includeBazaar={includeBazaar} />
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            {subCategoryCore.length === 0 && <p className="muted">No sub categories found for this category.</p>}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -231,6 +326,26 @@ export function ProfitabilityReport() {
       )}
       {groupBy === "category" && categoryCore.length === 0 && <p className="muted">No data found.</p>}
     </div>
+  );
+}
+
+function ProfitRowCells({ row, inclRow, includeBazaar }: { row: ProfitGroupRow; inclRow?: ProfitGroupRow; includeBazaar: boolean }) {
+  return (
+    <>
+      <td>{row.label}</td>
+      <td>{fmtNumber(row.qtySold)}</td>
+      <td>{fmtPct(row.marginPct)}</td>
+      <td>{fmtMoney(row.marginValue)}</td>
+      <td>{fmtPct(row.sellThroughPct)}</td>
+      {includeBazaar && (
+        <>
+          <td>{fmtNumber(inclRow?.qtySold ?? 0)}</td>
+          <td>{fmtPct(inclRow?.marginPct ?? null)}</td>
+          <td>{fmtMoney(inclRow?.marginValue ?? 0)}</td>
+          <td>{fmtPct(inclRow?.sellThroughPct ?? null)}</td>
+        </>
+      )}
+    </>
   );
 }
 

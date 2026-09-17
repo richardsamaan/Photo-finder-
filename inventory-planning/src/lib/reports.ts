@@ -9,6 +9,10 @@ export function categoryOf(itemCode: string, table: Map<string, string>): string
   return table.get(itemCode) ?? "(Uncategorized)";
 }
 
+export function subCategoryOf(itemCode: string, table: Map<string, string>): string {
+  return table.get(itemCode) ?? "(Uncategorized)";
+}
+
 // ---------------------------------------------------------------------------
 // Report 1: Category Study
 // ---------------------------------------------------------------------------
@@ -34,21 +38,59 @@ function computeCoverageMonths(soh: number, forecast: ForecastResult): number | 
   return soh / monthlyRate;
 }
 
-function nextShipmentDateForCategory(
-  category: string,
-  orders: OrderRow[],
-  categoryTable: Map<string, string>,
-  reportDate: Date
-): Date | null {
+function nextShipmentDateForGroup(group: string, orders: OrderRow[], groupOfOrder: (o: OrderRow) => string, reportDate: Date): Date | null {
   let best: Date | null = null;
   for (const o of orders) {
     if (!o.expectedDeliveryDate) continue;
     if (o.expectedDeliveryDate < reportDate) continue;
-    const cat = categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)";
-    if (cat !== category) continue;
+    if (groupOfOrder(o) !== group) continue;
     if (!best || o.expectedDeliveryDate < best) best = o.expectedDeliveryDate;
   }
   return best;
+}
+
+/**
+ * Shared engine behind Category Study (grouped by Category) and its Sub
+ * Category drill-down (grouped by Sub Category, pre-restricted to one parent
+ * Category) — every forecast/coverage figure is computed fresh for the group,
+ * never inherited from the parent.
+ */
+function buildGroupedStudy(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  orders: OrderRow[],
+  scope: ViewScope,
+  reportDate: Date,
+  groupOfInv01: (r: Inv01Row) => string,
+  groupOfSa79: (r: Sa79Row) => string,
+  groupOfOrder: (o: OrderRow) => string
+): CategoryStudyRow[] {
+  const scopedSa79 = sa79ForScope(sa79, scope);
+  const groups = new Set<string>();
+  for (const r of inv01) groups.add(groupOfInv01(r));
+  for (const r of scopedSa79) groups.add(groupOfSa79(r));
+
+  const out: CategoryStudyRow[] = [];
+  for (const group of groups) {
+    let soh = 0;
+    let sohCost = 0;
+    for (const r of inv01) {
+      if (groupOfInv01(r) !== group) continue;
+      const s = stockForScope(r, scope);
+      soh += s.curStk;
+      sohCost += s.curStkCost;
+    }
+    const groupSales = scopedSa79.filter((r) => groupOfSa79(r) === group);
+    const series = aggregateMonthly(groupSales);
+    const nextShipmentDate = nextShipmentDateForGroup(group, orders, groupOfOrder, reportDate);
+    const forecasts = computeAllForecasts(series, reportDate, nextShipmentDate);
+    const coverageMonths: Record<ForecastMethod, number | null> = {} as Record<ForecastMethod, number | null>;
+    for (const m of FORECAST_METHODS) {
+      coverageMonths[m.id] = computeCoverageMonths(soh, forecasts[m.id]);
+    }
+    out.push({ category: group, soh, sohCost, nextShipmentDate, forecasts, coverageMonths });
+  }
+  return out.sort((a, b) => a.category.localeCompare(b.category));
 }
 
 export function buildCategoryStudy(
@@ -59,33 +101,41 @@ export function buildCategoryStudy(
   scope: ViewScope,
   reportDate: Date
 ): CategoryStudyRow[] {
-  const scopedSa79 = sa79ForScope(sa79, scope);
-  const categories = new Set<string>();
-  for (const r of inv01) categories.add(categoryOf(r.itemCode, categoryTable) || r.category || "(Uncategorized)");
-  for (const r of scopedSa79) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
+  const groupOfInv01 = (r: Inv01Row) => r.category || categoryOf(r.itemCode, categoryTable);
+  const groupOfSa79 = (r: Sa79Row) => r.category || categoryOf(r.itemCode, categoryTable);
+  const groupOfOrder = (o: OrderRow) => categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)";
+  return buildGroupedStudy(inv01, sa79, orders, scope, reportDate, groupOfInv01, groupOfSa79, groupOfOrder);
+}
 
-  const out: CategoryStudyRow[] = [];
-  for (const category of categories) {
-    let soh = 0;
-    let sohCost = 0;
-    for (const r of inv01) {
-      const cat = r.category || categoryOf(r.itemCode, categoryTable);
-      if (cat !== category) continue;
-      const s = stockForScope(r, scope);
-      soh += s.curStk;
-      sohCost += s.curStkCost;
-    }
-    const catSales = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-    const series = aggregateMonthly(catSales);
-    const nextShipmentDate = nextShipmentDateForCategory(category, orders, categoryTable, reportDate);
-    const forecasts = computeAllForecasts(series, reportDate, nextShipmentDate);
-    const coverageMonths: Record<ForecastMethod, number | null> = {} as Record<ForecastMethod, number | null>;
-    for (const m of FORECAST_METHODS) {
-      coverageMonths[m.id] = computeCoverageMonths(soh, forecasts[m.id]);
-    }
-    out.push({ category, soh, sohCost, nextShipmentDate, forecasts, coverageMonths });
-  }
-  return out.sort((a, b) => a.category.localeCompare(b.category));
+/** Sub Category drill-down for Category Study — restricted to one parent Category, grouped by Sub Category. */
+export function buildSubCategoryStudy(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  orders: OrderRow[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  scope: ViewScope,
+  reportDate: Date,
+  category: string
+): CategoryStudyRow[] {
+  const inCategoryInv01 = (r: Inv01Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
+  const inCategorySa79 = (r: Sa79Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
+  const inCategoryOrder = (o: OrderRow) => (categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)") === category;
+
+  const groupOfInv01 = (r: Inv01Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
+  const groupOfSa79 = (r: Sa79Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
+  const groupOfOrder = (o: OrderRow) => subCategoryTable.get(o.line) ?? o.suggestedSubCategory ?? "(Uncategorized)";
+
+  return buildGroupedStudy(
+    inv01.filter(inCategoryInv01),
+    sa79.filter(inCategorySa79),
+    orders.filter(inCategoryOrder),
+    scope,
+    reportDate,
+    groupOfInv01,
+    groupOfSa79,
+    groupOfOrder
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -120,16 +170,7 @@ export function tierFor(soh: number, predicted: number): RiskTier {
   return "green";
 }
 
-export function buildRiskFlagging(
-  inv01: Inv01Row[],
-  sa79: Sa79Row[],
-  orders: OrderRow[],
-  categoryTable: Map<string, string>,
-  scope: ViewScope,
-  reportDate: Date,
-  method: ForecastMethod
-): RiskRow[] {
-  const study = buildCategoryStudy(inv01, sa79, orders, categoryTable, scope, reportDate);
+function studyToRiskRows(study: CategoryStudyRow[], method: ForecastMethod): RiskRow[] {
   return study.map((row) => {
     const predictedSales = row.forecasts[method].forecastQty;
     return {
@@ -141,6 +182,57 @@ export function buildRiskFlagging(
       nextShipmentDate: row.nextShipmentDate,
     };
   });
+}
+
+export function buildRiskFlagging(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  orders: OrderRow[],
+  categoryTable: Map<string, string>,
+  scope: ViewScope,
+  reportDate: Date,
+  method: ForecastMethod
+): RiskRow[] {
+  return studyToRiskRows(buildCategoryStudy(inv01, sa79, orders, categoryTable, scope, reportDate), method);
+}
+
+/** Sub Category drill-down for Risk Flagging — restricted to one parent Category, tiered per Sub Category. */
+export function buildSubCategoryRiskFlagging(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  orders: OrderRow[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  scope: ViewScope,
+  reportDate: Date,
+  method: ForecastMethod,
+  category: string
+): RiskRow[] {
+  return studyToRiskRows(
+    buildSubCategoryStudy(inv01, sa79, orders, categoryTable, subCategoryTable, scope, reportDate, category),
+    method
+  );
+}
+
+function skuRiskRow(sku: Inv01Row, scopedSa79: Sa79Row[], orders: OrderRow[], scope: ViewScope, reportDate: Date, method: ForecastMethod): RiskSkuRow {
+  const s = stockForScope(sku, scope);
+  const skuSales = scopedSa79.filter((r) => r.itemCode === sku.itemCode);
+  const series = aggregateMonthly(skuSales);
+  let nextShipmentDate: Date | null = null;
+  for (const o of orders) {
+    if (o.line !== sku.itemCode || !o.expectedDeliveryDate || o.expectedDeliveryDate < reportDate) continue;
+    if (!nextShipmentDate || o.expectedDeliveryDate < nextShipmentDate) nextShipmentDate = o.expectedDeliveryDate;
+  }
+  const forecast = computeForecast(method, series, reportDate, nextShipmentDate);
+  const predictedSales = forecast.forecastQty;
+  return {
+    itemCode: sku.itemCode,
+    itemDesc: sku.itemDesc,
+    soh: s.curStk,
+    predictedSales,
+    coveragePct: predictedSales > 0 ? (s.curStk / predictedSales) * 100 : null,
+    tier: tierFor(s.curStk, predictedSales),
+  };
 }
 
 export function buildRiskSkuDrilldown(
@@ -155,26 +247,29 @@ export function buildRiskSkuDrilldown(
 ): RiskSkuRow[] {
   const scopedSa79 = sa79ForScope(sa79, scope);
   const skus = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-  return skus.map((sku) => {
-    const s = stockForScope(sku, scope);
-    const skuSales = scopedSa79.filter((r) => r.itemCode === sku.itemCode);
-    const series = aggregateMonthly(skuSales);
-    let nextShipmentDate: Date | null = null;
-    for (const o of orders) {
-      if (o.line !== sku.itemCode || !o.expectedDeliveryDate || o.expectedDeliveryDate < reportDate) continue;
-      if (!nextShipmentDate || o.expectedDeliveryDate < nextShipmentDate) nextShipmentDate = o.expectedDeliveryDate;
-    }
-    const forecast = computeForecast(method, series, reportDate, nextShipmentDate);
-    const predictedSales = forecast.forecastQty;
-    return {
-      itemCode: sku.itemCode,
-      itemDesc: sku.itemDesc,
-      soh: s.curStk,
-      predictedSales,
-      coveragePct: predictedSales > 0 ? (s.curStk / predictedSales) * 100 : null,
-      tier: tierFor(s.curStk, predictedSales),
-    };
-  });
+  return skus.map((sku) => skuRiskRow(sku, scopedSa79, orders, scope, reportDate, method));
+}
+
+/** SKU-level drilldown one level further down — restricted to one parent Category AND Sub Category. */
+export function buildRiskSkuDrilldownForSubCategory(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  orders: OrderRow[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  scope: ViewScope,
+  reportDate: Date,
+  method: ForecastMethod,
+  category: string,
+  subCategory: string
+): RiskSkuRow[] {
+  const scopedSa79 = sa79ForScope(sa79, scope);
+  const skus = inv01.filter(
+    (r) =>
+      (r.category || categoryOf(r.itemCode, categoryTable)) === category &&
+      (r.subCategory || subCategoryOf(r.itemCode, subCategoryTable)) === subCategory
+  );
+  return skus.map((sku) => skuRiskRow(sku, scopedSa79, orders, scope, reportDate, method));
 }
 
 // ---------------------------------------------------------------------------
@@ -193,26 +288,27 @@ export interface SizeColourRow {
 
 const SIZE_COLOUR_BALANCE_THRESHOLD_PP = 3;
 
-export function buildSizeColourSuggestion(
+/** Shared engine behind Size/Colour % (grouped by Category) and its Sub Category drill-down. */
+function buildGroupedSizeColour(
   inv01: Inv01Row[],
-  sa79: Sa79Row[],
-  categoryTable: Map<string, string>,
+  scopedSa79: Sa79Row[],
   colourKeyMap: Map<string, string>,
-  scope: ViewScope
+  scope: ViewScope,
+  groupOfInv01: (r: Inv01Row) => string,
+  groupOfSa79: (r: Sa79Row) => string
 ): SizeColourRow[] {
-  const scopedSa79 = sa79ForScope(sa79, scope);
   const out: SizeColourRow[] = [];
 
-  const categories = new Set<string>();
-  for (const r of inv01) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
-  for (const r of scopedSa79) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
+  const groups = new Set<string>();
+  for (const r of inv01) groups.add(groupOfInv01(r));
+  for (const r of scopedSa79) groups.add(groupOfSa79(r));
 
-  for (const category of categories) {
+  for (const group of groups) {
     // Sales side (from SA79 — already has size + colour resolved).
-    const catSales = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-    const totalSalesQty = catSales.reduce((sum, r) => sum + r.qty, 0);
+    const groupSales = scopedSa79.filter((r) => groupOfSa79(r) === group);
+    const totalSalesQty = groupSales.reduce((sum, r) => sum + r.qty, 0);
     const salesBySizeColour = new Map<string, number>();
-    for (const r of catSales) {
+    for (const r of groupSales) {
       const size = r.itemSize || "(Unknown)";
       const colour = r.colourName || r.colourCode || "(Unknown)";
       const key = `${size}||${colour}`;
@@ -220,10 +316,10 @@ export function buildSizeColourSuggestion(
     }
 
     // Stock side (from INV01 — size/colour extracted from Reference the same way as SA79).
-    const catStock = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+    const groupStock = inv01.filter((r) => groupOfInv01(r) === group);
     const stockBySizeColour = new Map<string, number>();
     let totalStockQty = 0;
-    for (const r of catStock) {
+    for (const r of groupStock) {
       const s = stockForScope(r, scope);
       if (s.curStk === 0) continue;
       const parsed = parseStyleColourSize(r.reference);
@@ -245,11 +341,54 @@ export function buildSizeColourSuggestion(
       let suggestion: SizeColourRow["suggestion"] = "Balanced";
       if (diffPct < -SIZE_COLOUR_BALANCE_THRESHOLD_PP) suggestion = "Increase (under-supplied)";
       else if (diffPct > SIZE_COLOUR_BALANCE_THRESHOLD_PP) suggestion = "Decrease (over-supplied)";
-      out.push({ category, size, colour, salesMixPct, sohMixPct, diffPct, suggestion });
+      out.push({ category: group, size, colour, salesMixPct, sohMixPct, diffPct, suggestion });
     }
   }
 
   return out.sort((a, b) => a.category.localeCompare(b.category) || a.size.localeCompare(b.size) || a.colour.localeCompare(b.colour));
+}
+
+export function buildSizeColourSuggestion(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  categoryTable: Map<string, string>,
+  colourKeyMap: Map<string, string>,
+  scope: ViewScope
+): SizeColourRow[] {
+  const scopedSa79 = sa79ForScope(sa79, scope);
+  const groupOf = (itemCode: string, rawCategory: string) => rawCategory || categoryOf(itemCode, categoryTable);
+  return buildGroupedSizeColour(
+    inv01,
+    scopedSa79,
+    colourKeyMap,
+    scope,
+    (r) => groupOf(r.itemCode, r.category),
+    (r) => groupOf(r.itemCode, r.category)
+  );
+}
+
+/** Sub Category drill-down for Size/Colour % — restricted to one parent Category, grouped by Sub Category. */
+export function buildSubCategorySizeColourSuggestion(
+  inv01: Inv01Row[],
+  sa79: Sa79Row[],
+  categoryTable: Map<string, string>,
+  subCategoryTable: Map<string, string>,
+  colourKeyMap: Map<string, string>,
+  scope: ViewScope,
+  category: string
+): SizeColourRow[] {
+  const scopedSa79 = sa79ForScope(sa79, scope);
+  const inCategoryInv01 = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+  const inCategorySa79 = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+  const groupOf = (itemCode: string, rawSubCategory: string) => rawSubCategory || subCategoryOf(itemCode, subCategoryTable);
+  return buildGroupedSizeColour(
+    inCategoryInv01,
+    inCategorySa79,
+    colourKeyMap,
+    scope,
+    (r) => groupOf(r.itemCode, r.subCategory),
+    (r) => groupOf(r.itemCode, r.subCategory)
+  );
 }
 
 // Report 4 (Profitability) lives in ./profitability.ts — it's a SKU-level

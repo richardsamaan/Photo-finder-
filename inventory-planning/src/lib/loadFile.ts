@@ -44,20 +44,25 @@ export async function loadColourKeyFile(file: File): Promise<LoadedFile> {
   return { file, grid, headerRowIndex, preview, mapping };
 }
 
-/** Previous "category decisions" file: simple Item Code | Category, header on row 1. */
-export async function loadPreviousDecisions(file: File): Promise<Map<string, string>> {
+/** Previous "category decisions" file: Item Code | Category | Sub Category, header on row 1. */
+export async function loadPreviousDecisions(file: File): Promise<{ category: Map<string, string>; subCategory: Map<string, string> }> {
   const grid = await readWorkbookGrid(file);
   const headerRowIndex = findHeaderRow(grid, ["Item Code"], 5) === -1 ? 0 : findHeaderRow(grid, ["Item Code"], 5);
   const preview = buildPreview(grid, headerRowIndex);
   const mapping = autoDetectMapping(preview.headers, [
     { key: "itemCode", label: "Item Code", required: true, aliases: ["item code"] },
     { key: "category", label: "Category", required: true, aliases: ["category"] },
+    { key: "subCategory", label: "Sub Category", required: false, aliases: ["sub category", "subcategory"] },
   ]);
-  const m = new Map<string, string>();
+  const category = new Map<string, string>();
+  const subCategory = new Map<string, string>();
   for (const row of preview.rows) {
     const itemCode = mapping.itemCode ? toText(row[mapping.itemCode]) : "";
-    const category = mapping.category ? toText(row[mapping.category]) : "";
-    if (itemCode && category) m.set(itemCode, category);
+    if (!itemCode) continue;
+    const cat = mapping.category ? toText(row[mapping.category]) : "";
+    const subCat = mapping.subCategory ? toText(row[mapping.subCategory]) : "";
+    if (cat) category.set(itemCode, cat);
+    if (subCat) subCategory.set(itemCode, subCat);
   }
-  return m;
+  return { category, subCategory };
 }

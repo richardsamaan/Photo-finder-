@@ -78,6 +78,7 @@ export interface Inv01Row {
   brand: string;
   department: string;
   category: string;
+  subCategory: string;
   reference: string;
   itemDesc: string;
   season: string;
@@ -99,6 +100,7 @@ export interface Sa79Row {
   reference: string;
   season: string;
   category: string;
+  subCategory: string;
   itemSize: string;
   rtp: number | null;
   costPrice: number | null;
@@ -123,6 +125,12 @@ export interface OrderRow {
   pendingUnitsQty: number;
   pendingUnitsValue: number;
   suggestedCategory: string; // HB_Warehouse_ProdGrp
+  /**
+   * From this file's own "Sub Category" column. Like suggestedCategory, this is
+   * only ever a suggestion — the SKU -> Sub Category master table is built from
+   * INV01/SA79 only (mirrors how Category is resolved), never auto-trusted.
+   */
+  suggestedSubCategory: string;
 }
 
 export interface ColourKeyEntry {
@@ -143,6 +151,18 @@ export interface CategoryDecision {
   itemCode: string;
   category: string;
   /** true if a human explicitly chose/confirmed this (vs. an uncontested single-source value). */
+  manual: boolean;
+}
+
+/** Sub Category conflict/decision — resolved the same way as Category, one level below it. */
+export interface SubCategoryConflict {
+  itemCode: string;
+  candidates: { source: string; subCategory: string }[];
+}
+
+export interface SubCategoryDecision {
+  itemCode: string;
+  subCategory: string;
   manual: boolean;
 }
 
