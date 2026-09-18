@@ -71,23 +71,22 @@ static files (GitHub Pages included), with no server component.
    directly above the header row (Bazaar's INV01 label differs from its SA79
    Store Name, so it's matched separately from the other 3).
 3. **Resolve categories.** The SKU → Category table is rebuilt fresh each
-   session from whichever of INV01/SA79 you uploaded. Any SKU where the two
-   files disagree is flagged as a conflict you must resolve by hand — it's
-   never auto-resolved. Any brand-new SKU from "Order on the way" gets its
-   `HB_Warehouse_ProdGrp` value pre-filled as a suggestion, but you must
-   confirm or override it before it's used in any report. **Sub Category**
-   is resolved exactly the same way, one level below Category — its own SKU →
-   Sub Category table, its own conflict list, its own new-item confirmation
-   (using the order file's own "Sub Category" column as the suggestion) — and
-   is never a separate top-level filter, only a drill-down from a Category
-   row. You can download your manual decisions (Category + Sub Category
-   together) as a small Item Code | Category | Sub Category Excel file and
-   load it back in a future session to skip re-asking about those SKUs. Note
-   that, like Category, a genuine conflict between the source files
-   themselves re-surfaces every session even after loading a previous
-   decision — the previous decision only auto-resolves a SKU that no longer
-   has a live disagreement in this session's files (e.g. a brand-new SKU
-   confirmed last time).
+   session from INV01, SA79, *and* Order on the way — all three are equal,
+   first-class sources with their own "Category Indecater" column, resolved
+   through the same conflict/consensus mechanism. A SKU only one file
+   mentions (or where every file that mentions it agrees) is trusted
+   automatically; a SKU where two or more files disagree is flagged as a
+   conflict you must resolve by hand — it's never auto-resolved. **Sub
+   Category** is resolved exactly the same way, one level below Category —
+   its own SKU → Sub Category table, its own conflict list, fed by the same
+   three files' own "Sub Category" columns — and is never a separate
+   top-level filter, only a drill-down from a Category row. You can download
+   your manual decisions (Category + Sub Category together) as a small Item
+   Code | Category | Sub Category Excel file and load it back in a future
+   session to skip re-asking about those SKUs. Note that a genuine conflict
+   between the source files themselves re-surfaces every session even after
+   loading a previous decision — the previous decision only auto-resolves a
+   SKU that no longer has a live disagreement in this session's files.
 4. **View reports**, switching between the 3 individual locations and the
    combined (whole-business) view, and — for Category Study and Risk
    Flagging — between the three forecast methods (with a plain-language
@@ -238,11 +237,13 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   rather than failing to auto-map a required field over a single misspelled
   letter upstream.
 - **Volume**: 2,316 of the order's 3,062 SKUs were genuinely new (not yet in
-  INV01/SA79). One-by-one category confirmation doesn't scale at that size,
-  so a "Confirm all N suggested categories" bulk action was added alongside
-  the per-row override — still one explicit user action per the brief's
-  "must confirm, never silently trust" requirement, just not one click per
-  SKU. Rows with no suggestion at all still need individual attention.
+  INV01/SA79). Category/Sub Category resolution treats Order on the way as a
+  first-class source with its own "Category Indecater"/"Sub Category"
+  columns — exactly like INV01/SA79 — so a SKU that's new to INV01/SA79 but
+  carries its own category on its Order row resolves automatically, with no
+  per-row (or bulk) confirmation step needed. Only a genuine disagreement
+  between two or more files' values for the same SKU is ever flagged for a
+  human to resolve.
 - **Text-formatted dates were silently misparsed.** SheetJS's `cellDates:
   true` only converts genuinely Excel-date-typed cells to JS `Date`s — text-
   formatted date strings (common in these SAP-style exports) pass through as
@@ -256,6 +257,15 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   day-first parsing applied explicitly before falling back to native
   parsing, SA79's true latest Transaction Date is **2026-08-31**, exactly
   matching the file's own title and header claim.
+- **A pending shipment's date could go missing from "Next shipment" entirely**
+  (not just lose a min-date comparison to a later one) when that shipment's
+  SKU was new to INV01/SA79 and its Order-on-the-way row's suggested category
+  was never explicitly confirmed in Step 3 — until confirmed, that SKU's
+  category resolved to "(Uncategorized)", so its date was silently excluded
+  from its real category's "Next shipment" calculation altogether. Making
+  Order a first-class category/sub-category source (this same fix) closes
+  the gap: any SKU with its own category value on its Order row resolves
+  immediately, with nothing left to forget to confirm.
 
 With those fixes, all four real files loaded and processed correctly
 end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible

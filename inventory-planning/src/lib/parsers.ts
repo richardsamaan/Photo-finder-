@@ -130,8 +130,8 @@ export function parseOrderOnTheWay(
         expectedDeliveryDate,
         pendingUnitsQty: toNumber(get(row, mapping, "pendingUnitsQty")) ?? 0,
         pendingUnitsValue: toNumber(get(row, mapping, "pendingUnitsValue")) ?? 0,
-        suggestedCategory: toText(get(row, mapping, "suggestedCategory")),
-        suggestedSubCategory: toText(get(row, mapping, "suggestedSubCategory")),
+        category: toText(get(row, mapping, "category")),
+        subCategory: toText(get(row, mapping, "subCategory")),
       };
     })
     .filter((r): r is OrderRow => r !== null);

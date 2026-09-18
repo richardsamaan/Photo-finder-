@@ -81,15 +81,12 @@ export const ORDER_FIELDS: FieldSpec[] = [
     required: false,
     aliases: ["pending units value", "pending unites value", "units value"],
   },
-  { key: "suggestedCategory", label: "HB_Warehouse_ProdGrp", required: false, aliases: ["hb_warehouse_prodgrp", "warehouse prodgrp", "prodgrp"] },
-  {
-    key: "suggestedSubCategory",
-    label: "Sub Category",
-    required: false,
-    // Same field name as INV01/SA79, but (like HB_Warehouse_ProdGrp above) only ever
-    // a suggestion here — the resolved SKU -> Sub Category table is built from INV01/SA79 only.
-    aliases: ["sub category", "subcategory"],
-  },
+  // Category Indecater / Sub Category — same field names, same aliases, same
+  // required-ness as INV01's, since this file is now a first-class category
+  // source (resolved via the same conflict/consensus mechanism), not a
+  // suggestion-only fallback.
+  { key: "category", label: "Category", required: true, aliases: ["category"] },
+  { key: "subCategory", label: "Sub Category", required: false, aliases: ["sub category", "subcategory"] },
 ];
 
 export const COLOUR_KEY_FIELDS: FieldSpec[] = [

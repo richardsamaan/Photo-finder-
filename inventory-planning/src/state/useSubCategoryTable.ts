@@ -11,7 +11,7 @@ export function useSubCategoryTable(): Map<string, string> {
   const previousSubCategoryDecisionsMap = useAppStore((s) => s.previousSubCategoryDecisionsMap);
 
   return useMemo(() => {
-    const sources = collectSubCategorySources(inv01Rows, sa79Rows);
-    return resolveSubCategories(sources, orderRows, manualSubCategoryOverrides, previousSubCategoryDecisionsMap).table;
+    const sources = collectSubCategorySources(inv01Rows, sa79Rows, orderRows);
+    return resolveSubCategories(sources, manualSubCategoryOverrides, previousSubCategoryDecisionsMap).table;
   }, [inv01Rows, sa79Rows, orderRows, manualSubCategoryOverrides, previousSubCategoryDecisionsMap]);
 }

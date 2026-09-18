@@ -128,7 +128,8 @@ export function MappingStep() {
         {sa79Match.matched} of {sa79Match.totalInSource} SA79 SKUs matched to INV01, {sa79Match.unmatched} unmatched.
         <br />
         {orderMatch.matched} of {orderMatch.totalInSource} Order-on-the-way SKUs matched to INV01, {orderMatch.unmatched}{" "}
-        unmatched (unmatched ones are new items — you'll confirm a category for them next).
+        unmatched (unmatched ones are new items — their own Category / Sub Category columns resolve them automatically
+        next, same as INV01/SA79; only a genuine disagreement between files needs your input).
       </div>
 
       {missing.length > 0 && (

@@ -9,16 +9,22 @@ export function CategoriesStep() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [subDraft, setSubDraft] = useState<Record<string, string>>({});
 
-  const sources = useMemo(() => collectCategorySources(store.inv01Rows, store.sa79Rows), [store.inv01Rows, store.sa79Rows]);
+  const sources = useMemo(
+    () => collectCategorySources(store.inv01Rows, store.sa79Rows, store.orderRows),
+    [store.inv01Rows, store.sa79Rows, store.orderRows]
+  );
   const resolution = useMemo(
-    () => resolveCategories(sources, store.orderRows, store.manualOverrides, store.previousDecisionsMap),
-    [sources, store.orderRows, store.manualOverrides, store.previousDecisionsMap]
+    () => resolveCategories(sources, store.manualOverrides, store.previousDecisionsMap),
+    [sources, store.manualOverrides, store.previousDecisionsMap]
   );
 
-  const subSources = useMemo(() => collectSubCategorySources(store.inv01Rows, store.sa79Rows), [store.inv01Rows, store.sa79Rows]);
+  const subSources = useMemo(
+    () => collectSubCategorySources(store.inv01Rows, store.sa79Rows, store.orderRows),
+    [store.inv01Rows, store.sa79Rows, store.orderRows]
+  );
   const subResolution = useMemo(
-    () => resolveSubCategories(subSources, store.orderRows, store.manualSubCategoryOverrides, store.previousSubCategoryDecisionsMap),
-    [subSources, store.orderRows, store.manualSubCategoryOverrides, store.previousSubCategoryDecisionsMap]
+    () => resolveSubCategories(subSources, store.manualSubCategoryOverrides, store.previousSubCategoryDecisionsMap),
+    [subSources, store.manualSubCategoryOverrides, store.previousSubCategoryDecisionsMap]
   );
 
   const allKnownCategories = useMemo(() => {
@@ -33,35 +39,20 @@ export function CategoriesStep() {
     return [...set].sort();
   }, [subResolution.table]);
 
-  const canContinue =
-    resolution.conflicts.length === 0 &&
-    resolution.newFromOrders.length === 0 &&
-    subResolution.conflicts.length === 0 &&
-    subResolution.newFromOrders.length === 0;
+  const canContinue = resolution.conflicts.length === 0 && subResolution.conflicts.length === 0;
 
-  function commit(itemCode: string, fallbackSuggestion?: string) {
-    const value = (draft[itemCode] ?? fallbackSuggestion ?? "").trim();
+  function commit(itemCode: string) {
+    const value = (draft[itemCode] ?? "").trim();
     if (!value) return;
     store.setManualOverride(itemCode, value);
     setDraft((d) => ({ ...d, [itemCode]: "" }));
   }
 
-  function commitSub(itemCode: string, fallbackSuggestion?: string) {
-    const value = (subDraft[itemCode] ?? fallbackSuggestion ?? "").trim();
+  function commitSub(itemCode: string) {
+    const value = (subDraft[itemCode] ?? "").trim();
     if (!value) return;
     store.setManualSubCategoryOverride(itemCode, value);
     setSubDraft((d) => ({ ...d, [itemCode]: "" }));
-  }
-
-  const newItemsWithSuggestion = resolution.newFromOrders.filter((n) => n.suggestedCategory.trim() !== "");
-  const newSubItemsWithSuggestion = subResolution.newFromOrders.filter((n) => n.suggestedSubCategory.trim() !== "");
-
-  function confirmAllSuggested() {
-    store.setManualOverrides(newItemsWithSuggestion.map((n) => [n.itemCode, n.suggestedCategory.trim()]));
-  }
-
-  function confirmAllSuggestedSub() {
-    store.setManualSubCategoryOverrides(newSubItemsWithSuggestion.map((n) => [n.itemCode, n.suggestedSubCategory.trim()]));
   }
 
   function downloadDecisions() {
@@ -88,7 +79,9 @@ export function CategoriesStep() {
       <h2>Step 3 — Category resolution</h2>
       <p>
         Category and Sub Category are resolved fresh from the files you uploaded this session — there's no persistent
-        database. Resolve every conflict and confirm every new item below before moving on to the reports.
+        database. INV01, SA79, and Order on the way are all equal sources: any SKU where two or more of them disagree
+        is flagged as a conflict you must resolve by hand below; a SKU only one file mentions (or where every file
+        agrees) is trusted automatically, no confirmation needed.
       </p>
 
       <div className="kv">
@@ -103,21 +96,9 @@ export function CategoriesStep() {
           </div>
         </div>
         <div className="item">
-          <div className="label">New items to confirm (Category)</div>
-          <div className="value" style={{ color: resolution.newFromOrders.length ? "var(--red)" : "var(--green)" }}>
-            {resolution.newFromOrders.length}
-          </div>
-        </div>
-        <div className="item">
           <div className="label">Sub Category conflicts to resolve</div>
           <div className="value" style={{ color: subResolution.conflicts.length ? "var(--red)" : "var(--green)" }}>
             {subResolution.conflicts.length}
-          </div>
-        </div>
-        <div className="item">
-          <div className="label">New items to confirm (Sub Category)</div>
-          <div className="value" style={{ color: subResolution.newFromOrders.length ? "var(--red)" : "var(--green)" }}>
-            {subResolution.newFromOrders.length}
           </div>
         </div>
         <div className="item">
@@ -163,57 +144,6 @@ export function CategoriesStep() {
                         onChange={(e) => setDraft((d) => ({ ...d, [c.itemCode]: e.target.value }))}
                       />{" "}
                       <button className="small" onClick={() => commit(c.itemCode)}>
-                        Confirm
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {resolution.newFromOrders.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <h3>New items from "Order on the way" (not yet in INV01/SA79) — Category</h3>
-          <p className="muted">
-            Suggested category comes from HB_Warehouse_ProdGrp — confirm or override before it's used in any report.
-          </p>
-          {newItemsWithSuggestion.length > 1 && (
-            <div style={{ marginBottom: 10 }}>
-              <button className="secondary" onClick={confirmAllSuggested}>
-                Confirm all {newItemsWithSuggestion.length} suggested categories
-              </button>{" "}
-              <span className="muted">
-                One click accepts every pre-filled suggestion below as-is — still an explicit confirmation, just not
-                one row at a time. Override any individual row first if you don't want its suggestion accepted.
-              </span>
-            </div>
-          )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Code (EAN)</th>
-                  <th>Suggested category</th>
-                  <th>Confirm / override</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resolution.newFromOrders.map((n) => (
-                  <tr key={n.itemCode}>
-                    <td>{n.itemCode}</td>
-                    <td>{n.suggestedCategory || <span className="muted">(none suggested)</span>}</td>
-                    <td>
-                      <input
-                        type="text"
-                        list="known-categories"
-                        placeholder={n.suggestedCategory || "type a category"}
-                        value={draft[n.itemCode] ?? ""}
-                        onChange={(e) => setDraft((d) => ({ ...d, [n.itemCode]: e.target.value }))}
-                      />{" "}
-                      <button className="small" onClick={() => commit(n.itemCode, n.suggestedCategory)}>
                         Confirm
                       </button>
                     </td>
@@ -271,58 +201,6 @@ export function CategoriesStep() {
         </div>
       )}
 
-      {subResolution.newFromOrders.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <h3>New items from "Order on the way" (not yet in INV01/SA79) — Sub Category</h3>
-          <p className="muted">
-            Suggested sub category comes from the order file's own "Sub Category" column — confirm or override before
-            it's used in any report.
-          </p>
-          {newSubItemsWithSuggestion.length > 1 && (
-            <div style={{ marginBottom: 10 }}>
-              <button className="secondary" onClick={confirmAllSuggestedSub}>
-                Confirm all {newSubItemsWithSuggestion.length} suggested sub categories
-              </button>{" "}
-              <span className="muted">
-                One click accepts every pre-filled suggestion below as-is — still an explicit confirmation, just not
-                one row at a time. Override any individual row first if you don't want its suggestion accepted.
-              </span>
-            </div>
-          )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Code (EAN)</th>
-                  <th>Suggested sub category</th>
-                  <th>Confirm / override</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subResolution.newFromOrders.map((n) => (
-                  <tr key={n.itemCode}>
-                    <td>{n.itemCode}</td>
-                    <td>{n.suggestedSubCategory || <span className="muted">(none suggested)</span>}</td>
-                    <td>
-                      <input
-                        type="text"
-                        list="known-subcategories"
-                        placeholder={n.suggestedSubCategory || "type a sub category"}
-                        value={subDraft[n.itemCode] ?? ""}
-                        onChange={(e) => setSubDraft((d) => ({ ...d, [n.itemCode]: e.target.value }))}
-                      />{" "}
-                      <button className="small" onClick={() => commitSub(n.itemCode, n.suggestedSubCategory)}>
-                        Confirm
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       <datalist id="known-categories">
         {allKnownCategories.map((c) => (
           <option key={c} value={c} />
@@ -336,7 +214,7 @@ export function CategoriesStep() {
 
       {canContinue && (
         <div className="ok-box" style={{ marginTop: 16 }}>
-          All conflicts and new items are resolved. You're ready to view the reports.
+          All conflicts are resolved. You're ready to view the reports.
         </div>
       )}
 

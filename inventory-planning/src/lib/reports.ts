@@ -103,7 +103,7 @@ export function buildCategoryStudy(
 ): CategoryStudyRow[] {
   const groupOfInv01 = (r: Inv01Row) => r.category || categoryOf(r.itemCode, categoryTable);
   const groupOfSa79 = (r: Sa79Row) => r.category || categoryOf(r.itemCode, categoryTable);
-  const groupOfOrder = (o: OrderRow) => categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)";
+  const groupOfOrder = (o: OrderRow) => o.category || categoryOf(o.line, categoryTable);
   return buildGroupedStudy(inv01, sa79, orders, scope, reportDate, groupOfInv01, groupOfSa79, groupOfOrder);
 }
 
@@ -120,11 +120,11 @@ export function buildSubCategoryStudy(
 ): CategoryStudyRow[] {
   const inCategoryInv01 = (r: Inv01Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
   const inCategorySa79 = (r: Sa79Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
-  const inCategoryOrder = (o: OrderRow) => (categoryTable.get(o.line) ?? o.suggestedCategory ?? "(Uncategorized)") === category;
+  const inCategoryOrder = (o: OrderRow) => (o.category || categoryOf(o.line, categoryTable)) === category;
 
   const groupOfInv01 = (r: Inv01Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
   const groupOfSa79 = (r: Sa79Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
-  const groupOfOrder = (o: OrderRow) => subCategoryTable.get(o.line) ?? o.suggestedSubCategory ?? "(Uncategorized)";
+  const groupOfOrder = (o: OrderRow) => o.subCategory || subCategoryOf(o.line, subCategoryTable);
 
   return buildGroupedStudy(
     inv01.filter(inCategoryInv01),

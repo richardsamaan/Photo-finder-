@@ -124,13 +124,10 @@ export interface OrderRow {
   expectedDeliveryDate: Date | null;
   pendingUnitsQty: number;
   pendingUnitsValue: number;
-  suggestedCategory: string; // HB_Warehouse_ProdGrp
-  /**
-   * From this file's own "Sub Category" column. Like suggestedCategory, this is
-   * only ever a suggestion — the SKU -> Sub Category master table is built from
-   * INV01/SA79 only (mirrors how Category is resolved), never auto-trusted.
-   */
-  suggestedSubCategory: string;
+  /** From this file's own "Category Indecater" column — a first-class source, resolved the same way as INV01/SA79's category. */
+  category: string;
+  /** From this file's own "Sub Category" column — a first-class source, resolved the same way as INV01/SA79's subCategory. */
+  subCategory: string;
 }
 
 export interface ColourKeyEntry {
