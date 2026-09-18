@@ -7,14 +7,20 @@ import {
   buildRiskFlagging,
   buildRiskSkuDrilldownForSubCategory,
   buildSubCategoryRiskFlagging,
+  type RiskRow,
+  type RiskSkuRow,
   type RiskTier,
 } from "../../lib/reports";
 import { FORECAST_METHODS } from "../../types";
-import { exportToExcel, exportToPdf, fmtNumber, fmtPct } from "../../lib/exportUtils";
+import { exportToPdf, fmtNumber, fmtPct } from "../../lib/exportUtils";
+import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
+
+function tierLabel(tier: RiskTier): string {
+  return tier === "red" ? "🔴 Will run out" : tier === "blue" ? "🔵 Overstock" : "🟢 Healthy";
+}
 
 function TierBadge({ tier }: { tier: RiskTier }) {
-  const label = tier === "red" ? "🔴 Will run out" : tier === "blue" ? "🔵 Overstock" : "🟢 Healthy";
-  return <span className={`badge ${tier}`}>{label}</span>;
+  return <span className={`badge ${tier}`}>{tierLabel(tier)}</span>;
 }
 
 export function RiskFlaggingReport() {
@@ -86,19 +92,64 @@ export function RiskFlaggingReport() {
     setExpandedSubCategory(null);
   }
 
-  function handleExcel() {
-    exportToExcel(
-      `risk_flagging_${store.scope}.xlsx`,
-      "Risk Flagging",
-      [
-        { header: "Category", key: "category" },
-        { header: "SOH", key: "soh" },
-        { header: "Predicted sales", key: "predictedSales" },
-        { header: "Coverage %", key: "coveragePct" },
-        { header: "Tier", key: "tier" },
-      ],
-      rows.map((r) => ({ ...r, coveragePct: r.coveragePct }))
-    );
+  function riskRowCells(r: RiskRow): Record<string, unknown> {
+    return { label: r.category, soh: r.soh, predictedSales: r.predictedSales, coveragePct: r.coveragePct, status: tierLabel(r.tier) };
+  }
+
+  function skuRowCells(d: RiskSkuRow): Record<string, unknown> {
+    return {
+      label: "",
+      itemCode: d.itemCode,
+      itemDesc: d.itemDesc,
+      soh: d.soh,
+      predictedSales: d.predictedSales,
+      coveragePct: d.coveragePct,
+      status: tierLabel(d.tier),
+    };
+  }
+
+  async function handleExcel() {
+    const columns: GroupedExportColumn[] = [
+      { header: "Category / Sub Category", key: "label", width: 26 },
+      { header: "Item Code", key: "itemCode" },
+      { header: "Description", key: "itemDesc", width: 24 },
+      { header: "SOH", key: "soh" },
+      { header: "Predicted sales", key: "predictedSales", numFmt: "0.0" },
+      { header: "Coverage %", key: "coveragePct", numFmt: "0.0" },
+      { header: "Status", key: "status" },
+    ];
+    const groupedRows: GroupedExportRow[] = [];
+    for (const r of rows) {
+      groupedRows.push({ cells: riskRowCells(r), level: 0, tier: r.tier });
+      const subRisk = buildSubCategoryRiskFlagging(
+        store.inv01Rows,
+        store.sa79Rows,
+        store.orderRows,
+        categoryTable,
+        subCategoryTable,
+        store.scope,
+        reportDate,
+        store.forecastMethod,
+        r.category
+      );
+      for (const sr of subRisk) {
+        groupedRows.push({ cells: riskRowCells(sr), level: 1, tier: sr.tier });
+        const skus = buildRiskSkuDrilldownForSubCategory(
+          store.inv01Rows,
+          store.sa79Rows,
+          store.orderRows,
+          categoryTable,
+          subCategoryTable,
+          store.scope,
+          reportDate,
+          store.forecastMethod,
+          r.category,
+          sr.category
+        );
+        for (const d of skus) groupedRows.push({ cells: skuRowCells(d), level: 2, tier: d.tier });
+      }
+    }
+    await exportGroupedExcel(`risk_flagging_${store.scope}.xlsx`, "Risk Flagging", columns, groupedRows, { tierColumnKey: "status" });
   }
 
   function handlePdf() {
@@ -114,39 +165,6 @@ export function RiskFlaggingReport() {
         { header: "Tier", key: "tier" },
       ],
       rows
-    );
-  }
-
-  function handleSubExcel() {
-    if (!expandedCategory) return;
-    exportToExcel(
-      `risk_flagging_subcategory_${expandedCategory}_${store.scope}.xlsx`,
-      "Sub Category risk",
-      [
-        { header: "Sub Category", key: "category" },
-        { header: "SOH", key: "soh" },
-        { header: "Predicted sales", key: "predictedSales" },
-        { header: "Coverage %", key: "coveragePct" },
-        { header: "Tier", key: "tier" },
-      ],
-      subRows
-    );
-  }
-
-  function handleSkuExcel() {
-    if (!expandedCategory || !expandedSubCategory) return;
-    exportToExcel(
-      `risk_flagging_sku_${expandedCategory}_${expandedSubCategory}_${store.scope}.xlsx`,
-      "SKU drilldown",
-      [
-        { header: "Item Code", key: "itemCode" },
-        { header: "Description", key: "itemDesc" },
-        { header: "SOH", key: "soh" },
-        { header: "Predicted sales", key: "predictedSales" },
-        { header: "Coverage %", key: "coveragePct" },
-        { header: "Tier", key: "tier" },
-      ],
-      drilldown
     );
   }
 
@@ -201,9 +219,6 @@ export function RiskFlaggingReport() {
                         <span className="muted" style={{ marginRight: "auto" }}>
                           Sub Category detail for {r.category}
                         </span>
-                        <button className="small" onClick={handleSubExcel}>
-                          Export Sub Category list (Excel)
-                        </button>
                       </div>
                       <div className="table-wrap">
                         <table>
@@ -244,9 +259,6 @@ export function RiskFlaggingReport() {
                                         <span className="muted" style={{ marginRight: "auto" }}>
                                           SKU-level detail for {r.category} / {sr.category}
                                         </span>
-                                        <button className="small" onClick={handleSkuExcel}>
-                                          Export SKU list (Excel)
-                                        </button>
                                       </div>
                                       <div className="table-wrap" style={{ maxHeight: 320 }}>
                                         <table>

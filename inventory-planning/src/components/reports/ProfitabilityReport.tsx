@@ -13,6 +13,7 @@ import {
   type ProfitGroupRow,
 } from "../../lib/profitability";
 import { exportToExcel, exportToPdf, fmtMoney, fmtNumber, fmtPct } from "../../lib/exportUtils";
+import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
 
 type GroupBy = "category" | "location";
 
@@ -96,37 +97,6 @@ export function ProfitabilityReport() {
     });
   }
 
-  function subCategoryExportRows(): Record<string, unknown>[] {
-    const inclByKey = new Map(subCategoryIncl.map((r) => [r.key, r]));
-    return subCategoryCore.map((r) => {
-      const incl = inclByKey.get(r.key);
-      const row: Record<string, unknown> = {
-        subCategory: r.label,
-        qtySoldCore: r.qtySold,
-        marginPctCore: r.marginPct,
-        marginValueCore: r.marginValue,
-        sellThroughPctCore: r.sellThroughPct,
-      };
-      if (includeBazaar) {
-        row.qtySoldIncl = incl?.qtySold ?? 0;
-        row.marginPctIncl = incl?.marginPct ?? null;
-        row.marginValueIncl = incl?.marginValue ?? 0;
-        row.sellThroughPctIncl = incl?.sellThroughPct ?? null;
-      }
-      return row;
-    });
-  }
-
-  function handleSubExcel() {
-    if (!expanded) return;
-    const columns = [
-      { header: "Sub Category", key: "subCategory" },
-      ...metricColumns("Core", includeBazaar ? " (core)" : ""),
-      ...(includeBazaar ? metricColumns("Incl", " (incl. clearance)") : []),
-    ];
-    exportToExcel(`profitability_${expanded}_subcategories.xlsx`, "Profitability by Sub Category", columns, subCategoryExportRows());
-  }
-
   function locationExportRows(): Record<string, unknown>[] {
     return locationRows.map((r) => ({
       location: r.label,
@@ -140,14 +110,52 @@ export function ProfitabilityReport() {
     }));
   }
 
-  function handleExcel() {
+  function profitRowCells(r: ProfitGroupRow, inclByKey: Map<string, ProfitGroupRow>): Record<string, unknown> {
+    const incl = inclByKey.get(r.key);
+    const cells: Record<string, unknown> = {
+      label: r.label,
+      qtySoldCore: r.qtySold,
+      marginPctCore: r.marginPct,
+      marginValueCore: r.marginValue,
+      sellThroughPctCore: r.sellThroughPct,
+    };
+    if (includeBazaar) {
+      cells.qtySoldIncl = incl?.qtySold ?? 0;
+      cells.marginPctIncl = incl?.marginPct ?? null;
+      cells.marginValueIncl = incl?.marginValue ?? null;
+      cells.sellThroughPctIncl = incl?.sellThroughPct ?? null;
+    }
+    return cells;
+  }
+
+  function groupedMetricColumns(prefix: string, suffix: string): GroupedExportColumn[] {
+    return [
+      { header: `Qty sold${suffix}`, key: `qtySold${prefix}` },
+      { header: `Margin %${suffix}`, key: `marginPct${prefix}`, numFmt: "0.0" },
+      { header: `Margin value${suffix}`, key: `marginValue${prefix}`, numFmt: "#,##0.00" },
+      { header: `Sell-through %${suffix}`, key: `sellThroughPct${prefix}`, numFmt: "0.0" },
+    ];
+  }
+
+  async function handleExcel() {
     if (groupBy === "category") {
-      const columns = [
-        { header: "Category", key: "category" },
-        ...metricColumns("Core", includeBazaar ? " (core)" : ""),
-        ...(includeBazaar ? metricColumns("Incl", " (incl. clearance)") : []),
+      const columns: GroupedExportColumn[] = [
+        { header: "Category / Sub Category", key: "label", width: 26 },
+        ...groupedMetricColumns("Core", includeBazaar ? " (core)" : ""),
+        ...(includeBazaar ? groupedMetricColumns("Incl", " (incl. clearance)") : []),
       ];
-      exportToExcel("profitability_by_category.xlsx", "Profitability by Category", columns, categoryExportRows());
+      const categoryInclByKey = new Map(categoryIncl.map((r) => [r.key, r]));
+      const groupedRows: GroupedExportRow[] = [];
+      for (const core of categoryCore) {
+        groupedRows.push({ cells: profitRowCells(core, categoryInclByKey), level: 0 });
+        const subCore = groupProfitabilitySubCategoryWithinCategory(facts, store.inv01Rows, categoryTable, subCategoryTable, coreLocationIds, core.key);
+        const subIncl = includeBazaar
+          ? groupProfitabilitySubCategoryWithinCategory(facts, store.inv01Rows, categoryTable, subCategoryTable, allLocationIds, core.key)
+          : [];
+        const subInclByKey = new Map(subIncl.map((r) => [r.key, r]));
+        for (const sub of subCore) groupedRows.push({ cells: profitRowCells(sub, subInclByKey), level: 1 });
+      }
+      await exportGroupedExcel("profitability_by_category.xlsx", "Profitability by Category", columns, groupedRows);
     } else {
       exportToExcel(
         "profitability_by_location.xlsx",
@@ -276,9 +284,6 @@ export function ProfitabilityReport() {
                             <span className="muted" style={{ marginRight: "auto" }}>
                               Sub Category detail for {core.label}
                             </span>
-                            <button className="small" onClick={handleSubExcel}>
-                              Export Sub Category list (Excel)
-                            </button>
                           </div>
                           <div className="table-wrap">
                             <table>

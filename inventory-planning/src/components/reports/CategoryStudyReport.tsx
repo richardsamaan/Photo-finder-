@@ -6,7 +6,8 @@ import { useReportDate } from "../../state/useReportDate";
 import { buildCategoryStudy, buildSubCategoryStudy, type CategoryStudyRow } from "../../lib/reports";
 import { FORECAST_METHODS, type ForecastMethod } from "../../types";
 import { gapMonthsCount, yoyMonthList, yoyPeriodLabel } from "../../lib/forecast";
-import { exportToExcel, exportToPdf, fmtDate, fmtMonths, fmtNumber } from "../../lib/exportUtils";
+import { exportToPdf, fmtDate, fmtMonths, fmtNumber } from "../../lib/exportUtils";
+import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
 
 function yoyLabelFor(reportDate: Date, nextShipmentDate: Date | null): string | null {
   if (!nextShipmentDate) return null;
@@ -127,20 +128,35 @@ export function CategoryStudyReport() {
     });
   }
 
-  function handleExcel() {
-    const columns = [
-      { header: "Category", key: "category" },
+  async function handleExcel() {
+    const columns: GroupedExportColumn[] = [
+      { header: "Category / Sub Category", key: "category", width: 26 },
       { header: "SOH (qty)", key: "soh" },
-      { header: "SOH cost", key: "sohCost" },
-      { header: "Next shipment", key: "nextShipmentDate", format: fmtDate },
+      { header: "SOH cost", key: "sohCost", numFmt: "#,##0.00" },
+      { header: "Next shipment", key: "nextShipmentDate", numFmt: "yyyy-mm-dd" },
       { header: "Gap months", key: "gapMonths" },
       ...(compareAll
         ? FORECAST_METHODS.map((m) => ({ header: `Forecast — ${m.label}`, key: `forecast_${m.id}` }))
         : [{ header: `Forecast (${methodLabel})`, key: "forecastQty" }]),
       ...(includesYoy ? [{ header: "YoY period used", key: "yoyPeriod" }] : []),
-      { header: "Coverage (months)", key: "coverageMonths" },
+      { header: "Coverage (months)", key: "coverageMonths", numFmt: "0.0" },
     ];
-    exportToExcel(`category_study_${store.scope}.xlsx`, "Category Study", columns, exportRowsFor(rows));
+    const groupedRows: GroupedExportRow[] = [];
+    for (const r of rows) {
+      groupedRows.push({ cells: exportRowsFor([r])[0], level: 0 });
+      const subStudy = buildSubCategoryStudy(
+        store.inv01Rows,
+        store.sa79Rows,
+        store.orderRows,
+        categoryTable,
+        subCategoryTable,
+        store.scope,
+        reportDate,
+        r.category
+      );
+      for (const cells of exportRowsFor(subStudy)) groupedRows.push({ cells, level: 1 });
+    }
+    await exportGroupedExcel(`category_study_${store.scope}.xlsx`, "Category Study", columns, groupedRows);
   }
 
   function handlePdf() {
@@ -153,20 +169,6 @@ export function CategoryStudyReport() {
       { header: "Coverage (months)", key: "coverageMonths", format: fmtMonths },
     ];
     exportToPdf(`category_study_${store.scope}.pdf`, "Category Study", `Scope: ${store.scope} — Method: ${methodLabel}`, columns, exportRowsFor(rows));
-  }
-
-  function handleSubExcel() {
-    if (!expanded) return;
-    const columns = [
-      { header: "Sub Category", key: "category" },
-      { header: "SOH (qty)", key: "soh" },
-      { header: "SOH cost", key: "sohCost" },
-      { header: "Next shipment", key: "nextShipmentDate", format: fmtDate },
-      { header: "Gap months", key: "gapMonths" },
-      { header: `Forecast (${methodLabel})`, key: "forecastQty" },
-      { header: "Coverage (months)", key: "coverageMonths" },
-    ];
-    exportToExcel(`category_study_${expanded}_subcategories_${store.scope}.xlsx`, "Sub Category Study", columns, exportRowsFor(subRows));
   }
 
   return (
@@ -206,9 +208,6 @@ export function CategoryStudyReport() {
                         <span className="muted" style={{ marginRight: "auto" }}>
                           Sub Category detail for {r.category}
                         </span>
-                        <button className="small" onClick={handleSubExcel}>
-                          Export Sub Category list (Excel)
-                        </button>
                       </div>
                       <div className="table-wrap">
                         <table>

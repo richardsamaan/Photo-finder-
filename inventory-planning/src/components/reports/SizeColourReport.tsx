@@ -4,7 +4,8 @@ import { useCategoryTable } from "../../state/useCategoryTable";
 import { useSubCategoryTable } from "../../state/useSubCategoryTable";
 import { buildSizeColourSuggestion, buildSubCategorySizeColourSuggestion, type SizeColourRow } from "../../lib/reports";
 import { colourKeyToMap } from "../../lib/parsers";
-import { exportToExcel, exportToPdf, fmtPct } from "../../lib/exportUtils";
+import { exportToPdf, fmtPct } from "../../lib/exportUtils";
+import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
 
 function groupByLabel(rows: SizeColourRow[]): [string, SizeColourRow[]][] {
   const map = new Map<string, SizeColourRow[]>();
@@ -59,21 +60,48 @@ export function SizeColourReport() {
 
   const subGrouped = useMemo(() => groupByLabel(subRows), [subRows]);
 
-  function handleExcel() {
-    exportToExcel(
-      `size_colour_suggestion_${store.scope}.xlsx`,
-      "Size Colour %",
-      [
-        { header: "Category", key: "category" },
-        { header: "Size", key: "size" },
-        { header: "Colour", key: "colour" },
-        { header: "Sales Mix %", key: "salesMixPct" },
-        { header: "SOH Mix %", key: "sohMixPct" },
-        { header: "Diff (pp)", key: "diffPct" },
-        { header: "Suggestion", key: "suggestion" },
-      ],
-      rows
-    );
+  function sizeColourRowCells(r: SizeColourRow): Record<string, unknown> {
+    return {
+      label: "",
+      size: r.size,
+      colour: r.colour,
+      salesMixPct: r.salesMixPct,
+      sohMixPct: r.sohMixPct,
+      diffPct: r.diffPct,
+      suggestion: r.suggestion,
+    };
+  }
+
+  async function handleExcel() {
+    const columns: GroupedExportColumn[] = [
+      { header: "Category / Sub Category", key: "label", width: 26 },
+      { header: "Size", key: "size" },
+      { header: "Colour", key: "colour" },
+      { header: "Sales Mix %", key: "salesMixPct", numFmt: "0.0" },
+      { header: "SOH Mix %", key: "sohMixPct", numFmt: "0.0" },
+      { header: "Diff (pp)", key: "diffPct", numFmt: "0.0" },
+      { header: "Suggestion", key: "suggestion" },
+    ];
+    const groupedRows: GroupedExportRow[] = [];
+    for (const [category, catRows] of grouped) {
+      groupedRows.push({ cells: { label: category }, level: 0 });
+      for (const r of catRows) groupedRows.push({ cells: sizeColourRowCells(r), level: 0 });
+
+      const subStudy = buildSubCategorySizeColourSuggestion(
+        store.inv01Rows,
+        store.sa79Rows,
+        categoryTable,
+        subCategoryTable,
+        colourKeyMap,
+        store.scope,
+        category
+      );
+      for (const [subCategory, subCatRows] of groupByLabel(subStudy)) {
+        groupedRows.push({ cells: { label: subCategory }, level: 1 });
+        for (const r of subCatRows) groupedRows.push({ cells: sizeColourRowCells(r), level: 1 });
+      }
+    }
+    await exportGroupedExcel(`size_colour_suggestion_${store.scope}.xlsx`, "Size Colour %", columns, groupedRows);
   }
 
   function handlePdf() {
@@ -90,24 +118,6 @@ export function SizeColourReport() {
         { header: "Suggestion", key: "suggestion" },
       ],
       rows
-    );
-  }
-
-  function handleSubExcel() {
-    if (!expanded) return;
-    exportToExcel(
-      `size_colour_suggestion_${expanded}_subcategories_${store.scope}.xlsx`,
-      "Sub Category Size Colour %",
-      [
-        { header: "Sub Category", key: "category" },
-        { header: "Size", key: "size" },
-        { header: "Colour", key: "colour" },
-        { header: "Sales Mix %", key: "salesMixPct" },
-        { header: "SOH Mix %", key: "sohMixPct" },
-        { header: "Diff (pp)", key: "diffPct" },
-        { header: "Suggestion", key: "suggestion" },
-      ],
-      subRows
     );
   }
 
@@ -156,9 +166,6 @@ export function SizeColourReport() {
                 <span className="muted" style={{ marginRight: "auto" }}>
                   Sub Category detail for {category}
                 </span>
-                <button className="small" onClick={handleSubExcel}>
-                  Export Sub Category list (Excel)
-                </button>
               </div>
               {subGrouped.map(([subCategory, subCatRows]) => (
                 <Fragment key={subCategory}>

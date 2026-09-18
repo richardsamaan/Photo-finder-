@@ -96,7 +96,18 @@ static files (GitHub Pages included), with no server component.
    (in its Category grouping) all let you drill from a Category row into its
    Sub Categories, computed fresh at that level rather than inherited from
    the parent — Risk Flagging goes one level further, from Sub Category into
-   individual SKUs.
+   individual SKUs. Each of those 4 reports' Excel export is a single sheet
+   using Excel's native row grouping/outline (the same +/- feature
+   PivotTables use) — Category rows are always visible, with their Sub
+   Category rows (and, for Risk Flagging, SKU rows one level below that)
+   nested and collapsed by default. Headers are bold and frozen, every cell
+   is bordered, columns are auto-sized, and Risk Flagging's tier column is
+   colour-coded to match the on-screen 🔴/🟢/🔵 badges. This needed a second
+   Excel library (`exceljs`) alongside the `xlsx` package used for plain
+   exports — `xlsx`'s free Community Edition supports writing the row-outline
+   feature but silently drops all cell styling (bold, fills, borders) on
+   write; only its paid Pro tier supports that, so styled exports use
+   `exceljs` (MIT-licensed) instead.
 
 ## Assumptions worth knowing about
 
