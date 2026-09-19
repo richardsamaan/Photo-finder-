@@ -27,8 +27,8 @@ export function buildSkuProfitFacts(sa79: Sa79Row[], categoryTable: Map<string, 
     if (!r.location) continue; // unmatched Store Name — can't attribute to a location, excluded rather than silently mis-grouped
     facts.push({
       itemCode: r.itemCode,
-      category: r.category || categoryOf(r.itemCode, categoryTable),
-      subCategory: r.subCategory || subCategoryOf(r.itemCode, subCategoryTable),
+      category: categoryOf(r.itemCode, categoryTable),
+      subCategory: subCategoryOf(r.itemCode, subCategoryTable),
       location: r.location,
       season: r.season,
       qtySold: r.qty,
@@ -64,7 +64,7 @@ function aggregate(key: string, label: string, facts: SkuProfitFact[], soh: numb
 function sohForCategory(inv01: Inv01Row[], categoryTable: Map<string, string>, category: string, locationIds: LocationId[]): number {
   let total = 0;
   for (const r of inv01) {
-    if ((r.category || categoryOf(r.itemCode, categoryTable)) !== category) continue;
+    if (categoryOf(r.itemCode, categoryTable) !== category) continue;
     for (const loc of locationIds) total += r.stock[loc]?.curStk ?? 0;
   }
   return total;
@@ -80,8 +80,8 @@ function sohForSubCategory(
 ): number {
   let total = 0;
   for (const r of inv01) {
-    if ((r.category || categoryOf(r.itemCode, categoryTable)) !== category) continue;
-    if ((r.subCategory || subCategoryOf(r.itemCode, subCategoryTable)) !== subCategory) continue;
+    if (categoryOf(r.itemCode, categoryTable) !== category) continue;
+    if (subCategoryOf(r.itemCode, subCategoryTable) !== subCategory) continue;
     for (const loc of locationIds) total += r.stock[loc]?.curStk ?? 0;
   }
   return total;
@@ -104,7 +104,7 @@ export function groupProfitabilityByCategory(
   const scoped = facts.filter((f) => locSet.has(f.location));
 
   const categories = new Set<string>();
-  for (const r of inv01) categories.add(r.category || categoryOf(r.itemCode, categoryTable));
+  for (const r of inv01) categories.add(categoryOf(r.itemCode, categoryTable));
   for (const f of scoped) categories.add(f.category);
 
   return [...categories]
@@ -127,10 +127,10 @@ export function groupProfitabilitySubCategoryWithinCategory(
 ): ProfitGroupRow[] {
   const locSet = new Set(locationIds);
   const scoped = facts.filter((f) => locSet.has(f.location) && f.category === category);
-  const inCategoryInv01 = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+  const inCategoryInv01 = inv01.filter((r) => categoryOf(r.itemCode, categoryTable) === category);
 
   const subCategories = new Set<string>();
-  for (const r of inCategoryInv01) subCategories.add(r.subCategory || subCategoryOf(r.itemCode, subCategoryTable));
+  for (const r of inCategoryInv01) subCategories.add(subCategoryOf(r.itemCode, subCategoryTable));
   for (const f of scoped) subCategories.add(f.subCategory);
 
   return [...subCategories]

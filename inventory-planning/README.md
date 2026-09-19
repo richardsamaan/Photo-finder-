@@ -309,6 +309,33 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   Order's Category (and Sub Category) are now optional and unmapped by
   default, exactly like SA79's, so a file that lacks the column simply
   doesn't contribute to category resolution instead of forcing a bad guess.
+- **Making Order's Category mapping optional didn't fully fix the zero-
+  forecast regression above — it just hid the second half of it.** Every
+  report's grouping functions (Category Study, Risk Flagging, Size/Colour
+  %, Profitability) built each SKU's group key as `row's own raw category
+  field, falling back to the resolved table only if blank` — backwards from
+  what conflict resolution is for. INV01's own raw text nearly always *is*
+  the canonical value (it wins the resolution priority), so this looked
+  fine for INV01 and SOH; but the moment a real "Order on the way" file's
+  Category column is mapped (correctly, as intended), Order rows carry
+  their own raw text too — and if that text differs at all from the
+  resolved canonical value for the same SKU (a coarser/different
+  taxonomy, or even just different casing on a SKU that was auto-resolved
+  or bulk-confirmed in INV01's favor), the Order row silently grouped
+  under its own raw text instead of the SKU's real category. That
+  strands its "next shipment" date on a phantom near-duplicate category
+  (0 SOH, since INV01/SA79 never use that exact text) while the real
+  category — even one with thousands of units in stock — never sees an
+  Order row match its group at all, so `nextShipmentDate` stays null and
+  every forecast method reads 0 (gap-months-from-null-date is 0, and
+  every method's forecast quantity is proportional to gap months). Fixed
+  by always grouping on the canonical resolved category/sub category
+  (`categoryOf`/`subCategoryOf`) for every source — INV01, SA79, and
+  Order alike — never a row's own raw field. Verified against real data:
+  a category that previously lost its Order linkage (real stock, real
+  sales, but blank Next shipment and 0/0/0 forecasts) now shows its real
+  shipment date and non-zero forecast/coverage numbers again, consistently
+  across Category Study, Risk Flagging, and Profitability.
 
 With those fixes, all four real files loaded and processed correctly
 end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible

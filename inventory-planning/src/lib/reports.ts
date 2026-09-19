@@ -101,9 +101,9 @@ export function buildCategoryStudy(
   scope: ViewScope,
   reportDate: Date
 ): CategoryStudyRow[] {
-  const groupOfInv01 = (r: Inv01Row) => r.category || categoryOf(r.itemCode, categoryTable);
-  const groupOfSa79 = (r: Sa79Row) => r.category || categoryOf(r.itemCode, categoryTable);
-  const groupOfOrder = (o: OrderRow) => o.category || categoryOf(o.line, categoryTable);
+  const groupOfInv01 = (r: Inv01Row) => categoryOf(r.itemCode, categoryTable);
+  const groupOfSa79 = (r: Sa79Row) => categoryOf(r.itemCode, categoryTable);
+  const groupOfOrder = (o: OrderRow) => categoryOf(o.line, categoryTable);
   return buildGroupedStudy(inv01, sa79, orders, scope, reportDate, groupOfInv01, groupOfSa79, groupOfOrder);
 }
 
@@ -118,13 +118,13 @@ export function buildSubCategoryStudy(
   reportDate: Date,
   category: string
 ): CategoryStudyRow[] {
-  const inCategoryInv01 = (r: Inv01Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
-  const inCategorySa79 = (r: Sa79Row) => (r.category || categoryOf(r.itemCode, categoryTable)) === category;
-  const inCategoryOrder = (o: OrderRow) => (o.category || categoryOf(o.line, categoryTable)) === category;
+  const inCategoryInv01 = (r: Inv01Row) => categoryOf(r.itemCode, categoryTable) === category;
+  const inCategorySa79 = (r: Sa79Row) => categoryOf(r.itemCode, categoryTable) === category;
+  const inCategoryOrder = (o: OrderRow) => categoryOf(o.line, categoryTable) === category;
 
-  const groupOfInv01 = (r: Inv01Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
-  const groupOfSa79 = (r: Sa79Row) => r.subCategory || subCategoryOf(r.itemCode, subCategoryTable);
-  const groupOfOrder = (o: OrderRow) => o.subCategory || subCategoryOf(o.line, subCategoryTable);
+  const groupOfInv01 = (r: Inv01Row) => subCategoryOf(r.itemCode, subCategoryTable);
+  const groupOfSa79 = (r: Sa79Row) => subCategoryOf(r.itemCode, subCategoryTable);
+  const groupOfOrder = (o: OrderRow) => subCategoryOf(o.line, subCategoryTable);
 
   return buildGroupedStudy(
     inv01.filter(inCategoryInv01),
@@ -246,7 +246,7 @@ export function buildRiskSkuDrilldown(
   category: string
 ): RiskSkuRow[] {
   const scopedSa79 = sa79ForScope(sa79, scope);
-  const skus = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
+  const skus = inv01.filter((r) => categoryOf(r.itemCode, categoryTable) === category);
   return skus.map((sku) => skuRiskRow(sku, scopedSa79, orders, scope, reportDate, method));
 }
 
@@ -266,8 +266,8 @@ export function buildRiskSkuDrilldownForSubCategory(
   const scopedSa79 = sa79ForScope(sa79, scope);
   const skus = inv01.filter(
     (r) =>
-      (r.category || categoryOf(r.itemCode, categoryTable)) === category &&
-      (r.subCategory || subCategoryOf(r.itemCode, subCategoryTable)) === subCategory
+      categoryOf(r.itemCode, categoryTable) === category &&
+      subCategoryOf(r.itemCode, subCategoryTable) === subCategory
   );
   return skus.map((sku) => skuRiskRow(sku, scopedSa79, orders, scope, reportDate, method));
 }
@@ -356,14 +356,13 @@ export function buildSizeColourSuggestion(
   scope: ViewScope
 ): SizeColourRow[] {
   const scopedSa79 = sa79ForScope(sa79, scope);
-  const groupOf = (itemCode: string, rawCategory: string) => rawCategory || categoryOf(itemCode, categoryTable);
   return buildGroupedSizeColour(
     inv01,
     scopedSa79,
     colourKeyMap,
     scope,
-    (r) => groupOf(r.itemCode, r.category),
-    (r) => groupOf(r.itemCode, r.category)
+    (r) => categoryOf(r.itemCode, categoryTable),
+    (r) => categoryOf(r.itemCode, categoryTable)
   );
 }
 
@@ -378,16 +377,15 @@ export function buildSubCategorySizeColourSuggestion(
   category: string
 ): SizeColourRow[] {
   const scopedSa79 = sa79ForScope(sa79, scope);
-  const inCategoryInv01 = inv01.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-  const inCategorySa79 = scopedSa79.filter((r) => (r.category || categoryOf(r.itemCode, categoryTable)) === category);
-  const groupOf = (itemCode: string, rawSubCategory: string) => rawSubCategory || subCategoryOf(itemCode, subCategoryTable);
+  const inCategoryInv01 = inv01.filter((r) => categoryOf(r.itemCode, categoryTable) === category);
+  const inCategorySa79 = scopedSa79.filter((r) => categoryOf(r.itemCode, categoryTable) === category);
   return buildGroupedSizeColour(
     inCategoryInv01,
     inCategorySa79,
     colourKeyMap,
     scope,
-    (r) => groupOf(r.itemCode, r.subCategory),
-    (r) => groupOf(r.itemCode, r.subCategory)
+    (r) => subCategoryOf(r.itemCode, subCategoryTable),
+    (r) => subCategoryOf(r.itemCode, subCategoryTable)
   );
 }
 
