@@ -30,8 +30,10 @@ export function collectCategorySources(inv01: Inv01Row[], sa79: Sa79Row[], order
 export interface CategoryResolutionResult {
   /** Final SKU -> category table (only entries that are safe to use in reports). */
   table: Map<string, string>;
-  /** SKUs where two or more sources disagree on category — must be resolved manually before reports run. */
+  /** SKUs where two or more sources disagree on category and no decision (bulk or individual) has been made yet this session — must be resolved before reports run. */
   conflicts: CategoryConflict[];
+  /** Every SKU where two or more sources disagree, whether resolved yet or not — for review UI. A resolved one's current value lives in `manualOverrides`, not here. */
+  allConflicts: CategoryConflict[];
   /** SKUs already covered by a loaded "previous category decisions" file. */
   fromPreviousDecisions: string[];
 }
@@ -57,32 +59,40 @@ export function resolveCategories(
 
   const table = new Map<string, string>();
   const conflicts: CategoryConflict[] = [];
+  const allConflicts: CategoryConflict[] = [];
 
   // previous decisions are pre-filled first (lowest precedence — a fresh
   // conflict or manual override this session still wins if present).
   for (const [sku, cat] of previousDecisions) table.set(sku, cat);
 
   for (const [sku, catMap] of bySku) {
-    if (manualOverrides.has(sku)) {
-      table.set(sku, manualOverrides.get(sku)!);
-      continue;
-    }
-    if (catMap.size === 1) {
-      table.set(sku, [...catMap.keys()][0]);
-    } else {
-      conflicts.push({
+    if (catMap.size > 1) {
+      const conflict: CategoryConflict = {
         itemCode: sku,
         candidates: [...catMap.entries()].map(([category, srcs]) => ({
           source: [...srcs].join(", "),
           category,
         })),
-      });
+      };
+      allConflicts.push(conflict);
+      if (manualOverrides.has(sku)) {
+        table.set(sku, manualOverrides.get(sku)!);
+      } else {
+        conflicts.push(conflict);
+      }
+      continue;
+    }
+    if (manualOverrides.has(sku)) {
+      table.set(sku, manualOverrides.get(sku)!);
+    } else {
+      table.set(sku, [...catMap.keys()][0]);
     }
   }
 
   return {
     table,
     conflicts,
+    allConflicts,
     fromPreviousDecisions: [...previousDecisions.keys()],
   };
 }

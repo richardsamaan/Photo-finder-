@@ -1,13 +1,27 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useAppStore } from "../state/appStore";
 import { collectCategorySources, resolveCategories } from "../lib/categoryResolution";
 import { collectSubCategorySources, resolveSubCategories } from "../lib/subCategoryResolution";
 import { exportToExcel } from "../lib/exportUtils";
+import { ConflictResolver, type NormalizedConflict } from "./ConflictResolver";
+import type { CategoryConflict, SubCategoryConflict } from "../types";
+
+function normalizeCategoryConflicts(conflicts: CategoryConflict[]): NormalizedConflict[] {
+  return conflicts.map((c) => ({
+    itemCode: c.itemCode,
+    candidates: c.candidates.map((cand) => ({ source: cand.source, value: cand.category })),
+  }));
+}
+
+function normalizeSubCategoryConflicts(conflicts: SubCategoryConflict[]): NormalizedConflict[] {
+  return conflicts.map((c) => ({
+    itemCode: c.itemCode,
+    candidates: c.candidates.map((cand) => ({ source: cand.source, value: cand.subCategory })),
+  }));
+}
 
 export function CategoriesStep() {
   const store = useAppStore();
-  const [draft, setDraft] = useState<Record<string, string>>({});
-  const [subDraft, setSubDraft] = useState<Record<string, string>>({});
 
   const sources = useMemo(
     () => collectCategorySources(store.inv01Rows, store.sa79Rows, store.orderRows),
@@ -39,21 +53,15 @@ export function CategoriesStep() {
     return [...set].sort();
   }, [subResolution.table]);
 
+  const normalizedAllConflicts = useMemo(() => normalizeCategoryConflicts(resolution.allConflicts), [resolution.allConflicts]);
+  const normalizedUnresolvedConflicts = useMemo(() => normalizeCategoryConflicts(resolution.conflicts), [resolution.conflicts]);
+  const normalizedAllSubConflicts = useMemo(() => normalizeSubCategoryConflicts(subResolution.allConflicts), [subResolution.allConflicts]);
+  const normalizedUnresolvedSubConflicts = useMemo(
+    () => normalizeSubCategoryConflicts(subResolution.conflicts),
+    [subResolution.conflicts]
+  );
+
   const canContinue = resolution.conflicts.length === 0 && subResolution.conflicts.length === 0;
-
-  function commit(itemCode: string) {
-    const value = (draft[itemCode] ?? "").trim();
-    if (!value) return;
-    store.setManualOverride(itemCode, value);
-    setDraft((d) => ({ ...d, [itemCode]: "" }));
-  }
-
-  function commitSub(itemCode: string) {
-    const value = (subDraft[itemCode] ?? "").trim();
-    if (!value) return;
-    store.setManualSubCategoryOverride(itemCode, value);
-    setSubDraft((d) => ({ ...d, [itemCode]: "" }));
-  }
 
   function downloadDecisions() {
     const itemCodes = new Set([...store.manualOverrides.keys(), ...store.manualSubCategoryOverrides.keys()]);
@@ -80,8 +88,8 @@ export function CategoriesStep() {
       <p>
         Category and Sub Category are resolved fresh from the files you uploaded this session — there's no persistent
         database. INV01, SA79, and Order on the way are all equal sources: any SKU where two or more of them disagree
-        is flagged as a conflict you must resolve by hand below; a SKU only one file mentions (or where every file
-        agrees) is trusted automatically, no confirmation needed.
+        is flagged as a conflict you must resolve below (one at a time, or in bulk); a SKU only one file mentions (or
+        where every file agrees) is trusted automatically, no confirmation needed.
       </p>
 
       <div className="kv">
@@ -109,108 +117,25 @@ export function CategoriesStep() {
         </div>
       </div>
 
-      {resolution.conflicts.length > 0 && (
-        <div>
-          <h3>Category conflicts — same SKU, different category across files</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Code</th>
-                  <th>Candidates</th>
-                  <th>Choose</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resolution.conflicts.map((c) => (
-                  <tr key={c.itemCode}>
-                    <td>{c.itemCode}</td>
-                    <td>
-                      {c.candidates.map((cand) => (
-                        <div key={cand.category}>
-                          <button className="small" onClick={() => store.setManualOverride(c.itemCode, cand.category)}>
-                            Use "{cand.category}"
-                          </button>{" "}
-                          <span className="muted">({cand.source})</span>
-                        </div>
-                      ))}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        list="known-categories"
-                        placeholder="or type a category"
-                        value={draft[c.itemCode] ?? ""}
-                        onChange={(e) => setDraft((d) => ({ ...d, [c.itemCode]: e.target.value }))}
-                      />{" "}
-                      <button className="small" onClick={() => commit(c.itemCode)}>
-                        Confirm
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <ConflictResolver
+        label="Category"
+        allConflicts={normalizedAllConflicts}
+        unresolvedConflicts={normalizedUnresolvedConflicts}
+        manualOverrides={store.manualOverrides}
+        knownValues={allKnownCategories}
+        onSetOverride={store.setManualOverride}
+        onSetOverrides={store.setManualOverrides}
+      />
 
-      {subResolution.conflicts.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <h3>Sub Category conflicts — same SKU, different sub category across files</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item Code</th>
-                  <th>Candidates</th>
-                  <th>Choose</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subResolution.conflicts.map((c) => (
-                  <tr key={c.itemCode}>
-                    <td>{c.itemCode}</td>
-                    <td>
-                      {c.candidates.map((cand) => (
-                        <div key={cand.subCategory}>
-                          <button className="small" onClick={() => store.setManualSubCategoryOverride(c.itemCode, cand.subCategory)}>
-                            Use "{cand.subCategory}"
-                          </button>{" "}
-                          <span className="muted">({cand.source})</span>
-                        </div>
-                      ))}
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        list="known-subcategories"
-                        placeholder="or type a sub category"
-                        value={subDraft[c.itemCode] ?? ""}
-                        onChange={(e) => setSubDraft((d) => ({ ...d, [c.itemCode]: e.target.value }))}
-                      />{" "}
-                      <button className="small" onClick={() => commitSub(c.itemCode)}>
-                        Confirm
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <datalist id="known-categories">
-        {allKnownCategories.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
-      <datalist id="known-subcategories">
-        {allKnownSubCategories.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
+      <ConflictResolver
+        label="Sub Category"
+        allConflicts={normalizedAllSubConflicts}
+        unresolvedConflicts={normalizedUnresolvedSubConflicts}
+        manualOverrides={store.manualSubCategoryOverrides}
+        knownValues={allKnownSubCategories}
+        onSetOverride={store.setManualSubCategoryOverride}
+        onSetOverrides={store.setManualSubCategoryOverrides}
+      />
 
       {canContinue && (
         <div className="ok-box" style={{ marginTop: 16 }}>

@@ -76,8 +76,16 @@ static files (GitHub Pages included), with no server component.
    through the same conflict/consensus mechanism. A SKU only one file
    mentions (or where every file that mentions it agrees) is trusted
    automatically; a SKU where two or more files disagree is flagged as a
-   conflict you must resolve by hand — it's never auto-resolved. **Sub
-   Category** is resolved exactly the same way, one level below Category —
+   conflict you must resolve by hand — it's never auto-resolved. Each
+   conflict can be resolved one at a time, or in bulk: pick a source (e.g.
+   "Apply INV01's value") and it fills in every conflict currently unresolved
+   — optionally narrowed first by a filter box (matches Item Code or any
+   candidate value) so you can bulk-apply different rules to different
+   subsets rather than only all-or-nothing. A bulk rule never touches a SKU
+   you've already decided, individually or via an earlier bulk rule, and the
+   full list (resolved and unresolved) stays visible afterward so you can
+   spot-check and override any individual SKU at any time — nothing is
+   final. **Sub Category** is resolved exactly the same way, one level below Category —
    its own SKU → Sub Category table, its own conflict list, fed by the same
    three files' own "Sub Category" columns — and is never a separate
    top-level filter, only a drill-down from a Category row. You can download
