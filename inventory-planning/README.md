@@ -74,9 +74,14 @@ static files (GitHub Pages included), with no server component.
    session from INV01, SA79, *and* Order on the way — all three are equal,
    first-class sources with their own "Category Indecater" column, resolved
    through the same conflict/consensus mechanism. A SKU only one file
-   mentions (or where every file that mentions it agrees) is trusted
-   automatically; a SKU where two or more files disagree is flagged as a
-   conflict you must resolve by hand — it's never auto-resolved. Each
+   mentions (or where every file that mentions it agrees, ignoring letter
+   case — "JERSEY" and "Jersey" are the same value) is trusted
+   automatically; a SKU where two or more files disagree on the actual value
+   is flagged as a conflict you must resolve by hand — it's never
+   auto-resolved. When casing is the only disagreement, the value shown and
+   stored everywhere (reports, exports, the trusted-automatically list) is
+   always INV01's casing, or SA79's if INV01 doesn't mention that SKU, or
+   Order's if neither does. Each
    conflict can be resolved one at a time, or in bulk: pick a source (e.g.
    "Apply INV01's value") and it fills in every conflict currently unresolved
    — optionally narrowed first by a filter box (matches Item Code or any

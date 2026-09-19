@@ -30,7 +30,7 @@ export function collectSubCategorySources(inv01: Inv01Row[], sa79: Sa79Row[], or
 export interface SubCategoryResolutionResult {
   /** Final SKU -> sub category table (only entries safe to use in reports). */
   table: Map<string, string>;
-  /** SKUs where two or more sources disagree on sub category and no decision (bulk or individual) has been made yet this session — must be resolved before reports run. */
+  /** SKUs where two or more sources disagree on sub category (beyond casing) and no decision (bulk or individual) has been made yet this session — must be resolved before reports run. */
   conflicts: SubCategoryConflict[];
   /** Every SKU where two or more sources disagree, whether resolved yet or not — for review UI. A resolved one's current value lives in `manualOverrides`, not here. */
   allConflicts: SubCategoryConflict[];
@@ -38,23 +38,50 @@ export interface SubCategoryResolutionResult {
   fromPreviousDecisions: string[];
 }
 
+// Mirrors categoryResolution.ts's case-insensitive matching exactly — "JERSEY"
+// (INV01) and "Jersey" (Order) are the same value, not a conflict. When
+// sources agree case-insensitively, the canonical (displayed/stored) casing
+// is whichever source ranks highest here and actually mentioned this SKU.
+const SOURCE_CASING_PRIORITY = ["INV01", "SA79", "Order"];
+
+interface ValueGroup {
+  /** Every source that reported some casing of this value. */
+  sources: Set<string>;
+  /** The exact casing each source used (first one seen, if a source appears more than once). */
+  casingBySource: Map<string, string>;
+}
+
+function canonicalCasing(group: ValueGroup): string {
+  for (const src of SOURCE_CASING_PRIORITY) {
+    const casing = group.casingBySource.get(src);
+    if (casing) return casing;
+  }
+  return group.casingBySource.values().next().value!;
+}
+
 /**
- * Build the SKU -> Sub Category table. Does NOT auto-resolve conflicts — those
- * are surfaced for a human to pick, and are excluded from `table` until resolved
- * (via `manualOverrides`). `manualOverrides` also carries confirmed values for
- * previously-downloaded decisions.
+ * Build the SKU -> Sub Category table. Does NOT auto-resolve genuine
+ * conflicts — those are surfaced for a human to pick, and are excluded from
+ * `table` until resolved (via `manualOverrides`). A pure casing difference
+ * (all sources agree once case is ignored) is never a conflict — it's
+ * resolved automatically to the highest-priority source's casing, same as
+ * an exact-string agreement always has been. `manualOverrides` also carries
+ * confirmed values for previously-downloaded decisions.
  */
 export function resolveSubCategories(
   sources: SubCategorySource[],
   manualOverrides: Map<string, string>,
   previousDecisions: Map<string, string>
 ): SubCategoryResolutionResult {
-  const bySku = new Map<string, Map<string, Set<string>>>(); // itemCode -> subCategory -> sources
+  const bySku = new Map<string, Map<string, ValueGroup>>(); // itemCode -> lowercased subCategory -> group
   for (const s of sources) {
     if (!bySku.has(s.itemCode)) bySku.set(s.itemCode, new Map());
-    const subCatMap = bySku.get(s.itemCode)!;
-    if (!subCatMap.has(s.subCategory)) subCatMap.set(s.subCategory, new Set());
-    subCatMap.get(s.subCategory)!.add(s.source);
+    const valueMap = bySku.get(s.itemCode)!;
+    const key = s.subCategory.toLowerCase();
+    if (!valueMap.has(key)) valueMap.set(key, { sources: new Set(), casingBySource: new Map() });
+    const group = valueMap.get(key)!;
+    group.sources.add(s.source);
+    if (!group.casingBySource.has(s.source)) group.casingBySource.set(s.source, s.subCategory);
   }
 
   const table = new Map<string, string>();
@@ -65,13 +92,13 @@ export function resolveSubCategories(
   // conflict or manual override this session still wins if present).
   for (const [sku, subCat] of previousDecisions) table.set(sku, subCat);
 
-  for (const [sku, subCatMap] of bySku) {
-    if (subCatMap.size > 1) {
+  for (const [sku, valueMap] of bySku) {
+    if (valueMap.size > 1) {
       const conflict: SubCategoryConflict = {
         itemCode: sku,
-        candidates: [...subCatMap.entries()].map(([subCategory, srcs]) => ({
-          source: [...srcs].join(", "),
-          subCategory,
+        candidates: [...valueMap.values()].map((group) => ({
+          source: [...group.sources].join(", "),
+          subCategory: canonicalCasing(group),
         })),
       };
       allConflicts.push(conflict);
@@ -85,7 +112,7 @@ export function resolveSubCategories(
     if (manualOverrides.has(sku)) {
       table.set(sku, manualOverrides.get(sku)!);
     } else {
-      table.set(sku, [...subCatMap.keys()][0]);
+      table.set(sku, canonicalCasing([...valueMap.values()][0]));
     }
   }
 
