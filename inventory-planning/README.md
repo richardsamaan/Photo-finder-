@@ -94,12 +94,15 @@ static files (GitHub Pages included), with no server component.
    its own SKU → Sub Category table, its own conflict list, fed by the same
    three files' own "Sub Category" columns — and is never a separate
    top-level filter, only a drill-down from a Category row. You can download
-   your manual decisions (Category + Sub Category together) as a small Item
-   Code | Category | Sub Category Excel file and load it back in a future
-   session to skip re-asking about those SKUs. Note that a genuine conflict
-   between the source files themselves re-surfaces every session even after
-   loading a previous decision — the previous decision only auto-resolves a
-   SKU that no longer has a live disagreement in this session's files.
+   a full SKU category guideline — every categorized SKU this session
+   (Category + Sub Category together, whether trusted automatically or
+   resolved by hand), as one Item Code | Category | Sub Category Excel file
+   — and load it back in as "previous category decisions" in a future
+   session to skip re-asking about all of it, not just what you manually
+   resolved. Note that a genuine conflict between the source files
+   themselves re-surfaces every session even after loading a previous
+   decision — the previous decision only auto-resolves a SKU that no longer
+   has a live disagreement in this session's files.
 4. **View reports**, switching between the 3 individual locations and the
    combined (whole-business) view, and — for Category Study and Risk
    Flagging — between the three forecast methods (with a plain-language

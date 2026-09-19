@@ -63,16 +63,16 @@ export function CategoriesStep() {
 
   const canContinue = resolution.conflicts.length === 0 && subResolution.conflicts.length === 0;
 
-  function downloadDecisions() {
-    const itemCodes = new Set([...store.manualOverrides.keys(), ...store.manualSubCategoryOverrides.keys()]);
+  function downloadGuideline() {
+    const itemCodes = new Set([...resolution.table.keys(), ...subResolution.table.keys()]);
     const decisions = [...itemCodes].sort().map((itemCode) => ({
       itemCode,
-      category: store.manualOverrides.get(itemCode) ?? "",
-      subCategory: store.manualSubCategoryOverrides.get(itemCode) ?? "",
+      category: resolution.table.get(itemCode) ?? "",
+      subCategory: subResolution.table.get(itemCode) ?? "",
     }));
     exportToExcel(
-      "category_decisions.xlsx",
-      "Category Decisions",
+      "category_guideline.xlsx",
+      "Category Guideline",
       [
         { header: "Item Code", key: "itemCode" },
         { header: "Category", key: "category" },
@@ -143,14 +143,20 @@ export function CategoriesStep() {
         </div>
       )}
 
-      <div className="actions-row" style={{ justifyContent: "space-between" }}>
-        <button
-          className="secondary"
-          disabled={store.manualOverrides.size === 0 && store.manualSubCategoryOverrides.size === 0}
-          onClick={downloadDecisions}
-        >
-          Download my category decisions
-        </button>
+      <div className="actions-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <button
+            className="secondary"
+            disabled={resolution.table.size === 0 && subResolution.table.size === 0}
+            onClick={downloadGuideline}
+          >
+            Download SKU category guideline
+          </button>
+          <p className="muted" style={{ margin: "6px 0 0" }}>
+            Every categorized SKU this session ({resolution.table.size}), not just the ones you resolved by hand —
+            load it back in as "previous category decisions" next time to skip re-resolving anything unchanged.
+          </p>
+        </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button className="secondary" onClick={() => store.setStep("mapping")}>
             ← Back

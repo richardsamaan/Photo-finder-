@@ -70,7 +70,7 @@ export function UploadStep() {
 
       <FileDropzone
         label="Load previous category decisions (optional)"
-        hint="A small Item Code | Category | Sub Category file you downloaded from a previous session. Pre-fills those SKUs so you're not re-asked."
+        hint="An Item Code | Category | Sub Category file you downloaded from a previous session — the full SKU guideline or just your manual decisions. Pre-fills those SKUs so you're not re-asked."
         fileName={store.previousDecisionsFile?.file.name ?? null}
         onFile={(f) =>
           handle(
