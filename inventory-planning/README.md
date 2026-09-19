@@ -72,8 +72,13 @@ static files (GitHub Pages included), with no server component.
    Store Name, so it's matched separately from the other 3).
 3. **Resolve categories.** The SKU → Category table is rebuilt fresh each
    session from INV01, SA79, *and* Order on the way — all three are equal,
-   first-class sources with their own "Category Indecater" column, resolved
-   through the same conflict/consensus mechanism. A SKU only one file
+   first-class sources when they carry their own "Category Indecater" column,
+   resolved through the same conflict/consensus mechanism. Only INV01's
+   Category is required; SA79's and Order's are optional and left unmapped by
+   default, since plenty of real exports of either file carry no genuine
+   per-SKU category column at all (only a coarser/different grouping) —
+   mapping one of those in anyway would flood the conflict list with
+   spurious mismatches against INV01's real value. A SKU only one file
    mentions (or where every file that mentions it agrees, ignoring letter
    case — "JERSEY" and "Jersey" are the same value) is trusted
    automatically; a SKU where two or more files disagree on the actual value
@@ -282,6 +287,21 @@ A real "Order on the way" export was tested too (3,062 rows), surfacing more:
   Order a first-class category/sub-category source (this same fix) closes
   the gap: any SKU with its own category value on its Order row resolves
   immediately, with nothing left to forget to confirm.
+- **Making Order a first-class category source also, by oversight, made its
+  Category column required** — unlike SA79's, which was deliberately left
+  optional because real SA79 exports have no genuinely equivalent column.
+  Real "Order on the way" exports are often the same: no genuine per-SKU
+  category, only a coarser/different grouping (e.g. "HB_Warehouse_ProdGrp").
+  With Category required, a user with such a file had no honest mapping to
+  give it — mapping that mismatched column in anyway flooded the conflict
+  list with hundreds of spurious INV01-vs-Order disagreements, and bulk-
+  resolving them (by any rule) could scatter real SA79 sales history away
+  from a SKU's true category into whatever the mismatched column produced,
+  making every category's forecast — not just one — read as zero or near-
+  zero despite real stock and real sales existing somewhere in the file.
+  Order's Category (and Sub Category) are now optional and unmapped by
+  default, exactly like SA79's, so a file that lacks the column simply
+  doesn't contribute to category resolution instead of forcing a bad guess.
 
 With those fixes, all four real files loaded and processed correctly
 end-to-end (SA79's 20MB upload took ~19s to parse in-browser) with sensible

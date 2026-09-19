@@ -81,11 +81,15 @@ export const ORDER_FIELDS: FieldSpec[] = [
     required: false,
     aliases: ["pending units value", "pending unites value", "units value"],
   },
-  // Category Indecater / Sub Category — same field names, same aliases, same
-  // required-ness as INV01's, since this file is now a first-class category
-  // source (resolved via the same conflict/consensus mechanism), not a
-  // suggestion-only fallback.
-  { key: "category", label: "Category", required: true, aliases: ["category"] },
+  // Category Indecater / Sub Category — a first-class category source when
+  // present (resolved via the same conflict/consensus mechanism as
+  // INV01/SA79), but NOT required: plenty of real "Order on the way" exports
+  // carry no genuine per-SKU category column at all (only a coarser/different
+  // grouping like "HB_Warehouse_ProdGrp"), same situation as SA79's Category
+  // above. Forcing a mapping here left users no honest choice but to map an
+  // incompatible column, flooding the conflict list with spurious INV01-vs-Order
+  // mismatches — leave it unmapped by default, same opt-in treatment as SA79.
+  { key: "category", label: "Category", required: false, aliases: ["category"] },
   { key: "subCategory", label: "Sub Category", required: false, aliases: ["sub category", "subcategory"] },
 ];
 
