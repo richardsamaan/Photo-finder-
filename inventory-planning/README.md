@@ -112,11 +112,18 @@ static files (GitHub Pages included), with no server component.
    combined (whole-business) view, and — for Category Study and Risk
    Flagging — between the three forecast methods (with a plain-language
    explanation of each shown in-app). Every report exports to Excel and PDF.
-   Category Study, Risk Flagging, Size/Colour Suggestion %, and Profitability
-   (in its Category grouping) all let you drill from a Category row into its
-   Sub Categories, computed fresh at that level rather than inherited from
-   the parent — Risk Flagging goes one level further, from Sub Category into
-   individual SKUs. Each of those 4 reports' Excel export is a single sheet
+   Every table's column headers are sortable (click to sort ascending, click
+   again for descending — an arrow marks the active column and direction)
+   and filterable (a text box under most columns; a dropdown instead for a
+   small fixed set of values, like Risk Flagging's tier) — sorting and
+   filtering combine freely, and each table (a parent Category table and any
+   Sub Category/SKU table drilled into from it) keeps its own independent
+   sort/filter state, so narrowing or reordering one never disturbs another
+   or blocks drilling in further. Category Study, Risk Flagging, Size/Colour
+   Suggestion %, and Profitability (in its Category grouping) all let you
+   drill from a Category row into its Sub Categories, computed fresh at that
+   level rather than inherited from the parent — Risk Flagging goes one
+   level further, from Sub Category into individual SKUs. Each of those 4 reports' Excel export is a single sheet
    using Excel's native row grouping/outline (the same +/- feature
    PivotTables use) — Category rows are always visible, with their Sub
    Category rows (and, for Risk Flagging, SKU rows one level below that)

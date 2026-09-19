@@ -8,11 +8,29 @@ import { FORECAST_METHODS, type ForecastMethod } from "../../types";
 import { gapMonthsCount, yoyMonthList, yoyPeriodLabel } from "../../lib/forecast";
 import { exportToPdf, fmtDate, fmtMonths, fmtNumber } from "../../lib/exportUtils";
 import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
+import { useSortFilter, type SortFilterColumn } from "../../lib/tableSortFilter";
+import { SortFilterTh, PlainTh } from "../SortFilterTh";
 
 function yoyLabelFor(reportDate: Date, nextShipmentDate: Date | null): string | null {
   if (!nextShipmentDate) return null;
   const count = gapMonthsCount(reportDate, nextShipmentDate);
   return yoyPeriodLabel(yoyMonthList(nextShipmentDate, count));
+}
+
+/** Sortable/filterable columns for a CategoryStudyRow table — same shape for the top-level Category table and its Sub Category drill-down. */
+function studyColumns(method: ForecastMethod, compareAll: boolean): SortFilterColumn<CategoryStudyRow>[] {
+  const cols: SortFilterColumn<CategoryStudyRow>[] = [
+    { key: "category", type: "text", value: (r) => r.category },
+    { key: "soh", type: "number", value: (r) => r.soh },
+    { key: "sohCost", type: "number", value: (r) => r.sohCost },
+    { key: "nextShipment", type: "date", value: (r) => r.nextShipmentDate, filterText: (r) => fmtDate(r.nextShipmentDate) },
+    { key: "gapMonths", type: "number", value: (r) => r.forecasts[method].gapMonthsCount },
+  ];
+  if (!compareAll) {
+    cols.push({ key: "forecast", type: "number", value: (r) => r.forecasts[method].forecastQty });
+  }
+  cols.push({ key: "coverage", type: "number", value: (r) => r.coverageMonths[method] });
+  return cols;
 }
 
 /** Cells for one CategoryStudyRow — shared between the top-level table and the Sub Category drill-down. */
@@ -60,18 +78,41 @@ function StudyRowCells({
   );
 }
 
-function StudyTableHead({ label, compareAll, methodLabel }: { label: string; compareAll: boolean; methodLabel: string }) {
+function StudyTableHead({
+  label,
+  compareAll,
+  methodLabel,
+  sortFilter,
+}: {
+  label: string;
+  compareAll: boolean;
+  methodLabel: string;
+  sortFilter: ReturnType<typeof useSortFilter<CategoryStudyRow>>;
+}) {
+  const th = (columnKey: string, text: string, align?: "left" | "right") => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={columnKey === "category" ? "text" : columnKey === "nextShipment" ? "date" : "number"}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={align}
+    />
+  );
   return (
     <thead>
       <tr>
         <th></th>
-        <th>{label}</th>
-        <th>SOH (qty)</th>
-        <th>SOH cost</th>
-        <th>Next shipment</th>
-        <th>Gap months</th>
-        {compareAll ? FORECAST_METHODS.map((m) => <th key={m.id}>{m.label}</th>) : <th>Forecast ({methodLabel})</th>}
-        <th>Coverage (months)</th>
+        {th("category", label)}
+        {th("soh", "SOH (qty)", "right")}
+        {th("sohCost", "SOH cost", "right")}
+        {th("nextShipment", "Next shipment")}
+        {th("gapMonths", "Gap months", "right")}
+        {compareAll ? FORECAST_METHODS.map((m) => <PlainTh key={m.id}>{m.label}</PlainTh>) : th("forecast", `Forecast (${methodLabel})`, "right")}
+        {th("coverage", "Coverage (months)", "right")}
       </tr>
     </thead>
   );
@@ -106,6 +147,10 @@ export function CategoryStudyReport() {
 
   const methodLabel = FORECAST_METHODS.find((m) => m.id === store.forecastMethod)!.label;
   const includesYoy = compareAll || store.forecastMethod === "yoy";
+
+  const columns = useMemo(() => studyColumns(store.forecastMethod, compareAll), [store.forecastMethod, compareAll]);
+  const topSortFilter = useSortFilter(rows, columns);
+  const subSortFilter = useSortFilter(subRows, columns);
 
   function exportRowsFor(source: CategoryStudyRow[]) {
     return source.map((r) => {
@@ -188,9 +233,9 @@ export function CategoryStudyReport() {
 
       <div className="table-wrap">
         <table>
-          <StudyTableHead label="Category" compareAll={compareAll} methodLabel={methodLabel} />
+          <StudyTableHead label="Category" compareAll={compareAll} methodLabel={methodLabel} sortFilter={topSortFilter} />
           <tbody>
-            {rows.map((r) => (
+            {topSortFilter.rows.map((r) => (
               <Fragment key={r.category}>
                 <tr>
                   <td>
@@ -211,9 +256,9 @@ export function CategoryStudyReport() {
                       </div>
                       <div className="table-wrap">
                         <table>
-                          <StudyTableHead label="Sub Category" compareAll={compareAll} methodLabel={methodLabel} />
+                          <StudyTableHead label="Sub Category" compareAll={compareAll} methodLabel={methodLabel} sortFilter={subSortFilter} />
                           <tbody>
-                            {subRows.map((sr) => (
+                            {subSortFilter.rows.map((sr) => (
                               <tr key={sr.category}>
                                 <td></td>
                                 <td>{sr.category}</td>
@@ -223,6 +268,7 @@ export function CategoryStudyReport() {
                           </tbody>
                         </table>
                         {subRows.length === 0 && <p className="muted">No sub categories found for this category.</p>}
+                        {subRows.length > 0 && subSortFilter.rows.length === 0 && <p className="muted">No sub categories match the current filter.</p>}
                       </div>
                     </td>
                   </tr>
@@ -233,6 +279,7 @@ export function CategoryStudyReport() {
         </table>
       </div>
       {rows.length === 0 && <p className="muted">No categories found for this view.</p>}
+      {rows.length > 0 && topSortFilter.rows.length === 0 && <p className="muted">No categories match the current filter.</p>}
     </div>
   );
 }

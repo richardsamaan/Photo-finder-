@@ -14,14 +14,95 @@ import {
 import { FORECAST_METHODS } from "../../types";
 import { exportToPdf, fmtNumber, fmtPct } from "../../lib/exportUtils";
 import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
+import { useSortFilter, type SortFilterColumn } from "../../lib/tableSortFilter";
+import { SortFilterTh } from "../SortFilterTh";
 
 function tierLabel(tier: RiskTier): string {
   return tier === "red" ? "🔴 Will run out" : tier === "blue" ? "🔵 Overstock" : "🟢 Healthy";
 }
 
+const TIER_LABELS = (["red", "green", "blue"] as const).map(tierLabel);
+
 function TierBadge({ tier }: { tier: RiskTier }) {
   return <span className={`badge ${tier}`}>{tierLabel(tier)}</span>;
 }
+
+/** Header row shared by the Category and Sub Category tables (same column shape). */
+function RiskTableHead({ label, sortFilter }: { label: string; sortFilter: ReturnType<typeof useSortFilter<RiskRow>> }) {
+  const th = (columnKey: string, text: string, type: "text" | "number" | "enum" = "number", enumValues?: string[]) => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={type}
+      enumValues={enumValues}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={type === "number" ? "right" : "left"}
+    />
+  );
+  return (
+    <thead>
+      <tr>
+        <th></th>
+        {th("category", label, "text")}
+        {th("soh", "SOH")}
+        {th("predictedSales", "Predicted sales")}
+        {th("coveragePct", "Coverage %")}
+        {th("status", "Status", "enum", TIER_LABELS)}
+      </tr>
+    </thead>
+  );
+}
+
+/** Header row for the SKU-level drilldown table. */
+function RiskSkuTableHead({ sortFilter }: { sortFilter: ReturnType<typeof useSortFilter<RiskSkuRow>> }) {
+  const th = (columnKey: string, text: string, type: "text" | "number" | "enum" = "number", enumValues?: string[]) => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={type}
+      enumValues={enumValues}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={type === "number" ? "right" : "left"}
+    />
+  );
+  return (
+    <thead>
+      <tr>
+        {th("itemCode", "Item Code", "text")}
+        {th("itemDesc", "Description", "text")}
+        {th("soh", "SOH")}
+        {th("predictedSales", "Predicted sales")}
+        {th("coveragePct", "Coverage %")}
+        {th("status", "Status", "enum", TIER_LABELS)}
+      </tr>
+    </thead>
+  );
+}
+
+const riskRowColumns: SortFilterColumn<RiskRow>[] = [
+  { key: "category", type: "text", value: (r) => r.category },
+  { key: "soh", type: "number", value: (r) => r.soh },
+  { key: "predictedSales", type: "number", value: (r) => r.predictedSales },
+  { key: "coveragePct", type: "number", value: (r) => r.coveragePct },
+  { key: "status", type: "enum", value: (r) => tierLabel(r.tier), enumValues: TIER_LABELS },
+];
+
+const riskSkuColumns: SortFilterColumn<RiskSkuRow>[] = [
+  { key: "itemCode", type: "text", value: (r) => r.itemCode },
+  { key: "itemDesc", type: "text", value: (r) => r.itemDesc },
+  { key: "soh", type: "number", value: (r) => r.soh },
+  { key: "predictedSales", type: "number", value: (r) => r.predictedSales },
+  { key: "coveragePct", type: "number", value: (r) => r.coveragePct },
+  { key: "status", type: "enum", value: (r) => tierLabel(r.tier), enumValues: TIER_LABELS },
+];
 
 export function RiskFlaggingReport() {
   const store = useAppStore();
@@ -82,6 +163,10 @@ export function RiskFlaggingReport() {
   ]);
 
   const methodLabel = FORECAST_METHODS.find((m) => m.id === store.forecastMethod)!.label;
+
+  const topSortFilter = useSortFilter(rows, riskRowColumns);
+  const subSortFilter = useSortFilter(subRows, riskRowColumns);
+  const drilldownSortFilter = useSortFilter(drilldown, riskSkuColumns);
 
   function toggleCategory(category: string) {
     if (expandedCategory === category) {
@@ -185,18 +270,9 @@ export function RiskFlaggingReport() {
       </div>
       <div className="table-wrap">
         <table>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Category</th>
-              <th>SOH</th>
-              <th>Predicted sales</th>
-              <th>Coverage %</th>
-              <th>Status</th>
-            </tr>
-          </thead>
+          <RiskTableHead label="Category" sortFilter={topSortFilter} />
           <tbody>
-            {rows.map((r) => (
+            {topSortFilter.rows.map((r) => (
               <Fragment key={r.category}>
                 <tr>
                   <td>
@@ -222,18 +298,9 @@ export function RiskFlaggingReport() {
                       </div>
                       <div className="table-wrap">
                         <table>
-                          <thead>
-                            <tr>
-                              <th></th>
-                              <th>Sub Category</th>
-                              <th>SOH</th>
-                              <th>Predicted sales</th>
-                              <th>Coverage %</th>
-                              <th>Status</th>
-                            </tr>
-                          </thead>
+                          <RiskTableHead label="Sub Category" sortFilter={subSortFilter} />
                           <tbody>
-                            {subRows.map((sr) => (
+                            {subSortFilter.rows.map((sr) => (
                               <Fragment key={sr.category}>
                                 <tr>
                                   <td>
@@ -262,18 +329,9 @@ export function RiskFlaggingReport() {
                                       </div>
                                       <div className="table-wrap" style={{ maxHeight: 320 }}>
                                         <table>
-                                          <thead>
-                                            <tr>
-                                              <th>Item Code</th>
-                                              <th>Description</th>
-                                              <th>SOH</th>
-                                              <th>Predicted sales</th>
-                                              <th>Coverage %</th>
-                                              <th>Status</th>
-                                            </tr>
-                                          </thead>
+                                          <RiskSkuTableHead sortFilter={drilldownSortFilter} />
                                           <tbody>
-                                            {drilldown.map((d) => (
+                                            {drilldownSortFilter.rows.map((d) => (
                                               <tr key={d.itemCode}>
                                                 <td>{d.itemCode}</td>
                                                 <td>{d.itemDesc}</td>
@@ -296,6 +354,7 @@ export function RiskFlaggingReport() {
                           </tbody>
                         </table>
                         {subRows.length === 0 && <p className="muted">No sub categories found for this category.</p>}
+                        {subRows.length > 0 && subSortFilter.rows.length === 0 && <p className="muted">No sub categories match the current filter.</p>}
                       </div>
                     </td>
                   </tr>
@@ -305,6 +364,7 @@ export function RiskFlaggingReport() {
           </tbody>
         </table>
       </div>
+      {rows.length > 0 && topSortFilter.rows.length === 0 && <p className="muted">No categories match the current filter.</p>}
     </div>
   );
 }

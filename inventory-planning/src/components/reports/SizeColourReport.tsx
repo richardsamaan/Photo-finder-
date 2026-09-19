@@ -6,6 +6,8 @@ import { buildSizeColourSuggestion, buildSubCategorySizeColourSuggestion, type S
 import { colourKeyToMap } from "../../lib/parsers";
 import { exportToPdf, fmtPct } from "../../lib/exportUtils";
 import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
+import { useSortFilter, type SortFilterColumn } from "../../lib/tableSortFilter";
+import { SortFilterTh } from "../SortFilterTh";
 
 function groupByLabel(rows: SizeColourRow[]): [string, SizeColourRow[]][] {
   const map = new Map<string, SizeColourRow[]>();
@@ -16,26 +18,68 @@ function groupByLabel(rows: SizeColourRow[]): [string, SizeColourRow[]][] {
   return [...map.entries()];
 }
 
-function SizeColourTableBody({ rows }: { rows: SizeColourRow[] }) {
+const SUGGESTION_VALUES: SizeColourRow["suggestion"][] = ["Increase (under-supplied)", "Decrease (over-supplied)", "Balanced"];
+
+const sizeColourColumns: SortFilterColumn<SizeColourRow>[] = [
+  { key: "size", type: "text", value: (r) => r.size },
+  { key: "colour", type: "text", value: (r) => r.colour },
+  { key: "salesMixPct", type: "number", value: (r) => r.salesMixPct },
+  { key: "sohMixPct", type: "number", value: (r) => r.sohMixPct },
+  { key: "diffPct", type: "number", value: (r) => r.diffPct },
+  { key: "suggestion", type: "enum", value: (r) => r.suggestion, enumValues: SUGGESTION_VALUES },
+];
+
+/** One category's (or sub category's) Size/Colour table — sortable/filterable on its own, independent of any other table on the page. */
+function SizeColourTable({ rows }: { rows: SizeColourRow[] }) {
+  const sortFilter = useSortFilter(rows, sizeColourColumns);
+  const th = (columnKey: string, text: string, type: "text" | "number" | "enum" = "number", enumValues?: string[]) => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={type}
+      enumValues={enumValues}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={type === "number" ? "right" : "left"}
+    />
+  );
   return (
-    <tbody>
-      {rows.map((r, i) => (
-        <tr key={i}>
-          <td>{r.size}</td>
-          <td>{r.colour}</td>
-          <td>{fmtPct(r.salesMixPct)}</td>
-          <td>{fmtPct(r.sohMixPct)}</td>
-          <td>{r.diffPct.toFixed(1)}</td>
-          <td>
-            <span
-              className={`badge ${r.suggestion.startsWith("Increase") ? "red" : r.suggestion.startsWith("Decrease") ? "blue" : "green"}`}
-            >
-              {r.suggestion}
-            </span>
-          </td>
-        </tr>
-      ))}
-    </tbody>
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {th("size", "Size", "text")}
+            {th("colour", "Colour", "text")}
+            {th("salesMixPct", "Sales Mix %")}
+            {th("sohMixPct", "SOH Mix %")}
+            {th("diffPct", "Diff (pp)")}
+            {th("suggestion", "Suggestion", "enum", SUGGESTION_VALUES)}
+          </tr>
+        </thead>
+        <tbody>
+          {sortFilter.rows.map((r, i) => (
+            <tr key={i}>
+              <td>{r.size}</td>
+              <td>{r.colour}</td>
+              <td>{fmtPct(r.salesMixPct)}</td>
+              <td>{fmtPct(r.sohMixPct)}</td>
+              <td>{r.diffPct.toFixed(1)}</td>
+              <td>
+                <span
+                  className={`badge ${r.suggestion.startsWith("Increase") ? "red" : r.suggestion.startsWith("Decrease") ? "blue" : "green"}`}
+                >
+                  {r.suggestion}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > 0 && sortFilter.rows.length === 0 && <p className="muted">No rows match the current filter.</p>}
+    </div>
   );
 }
 
@@ -145,21 +189,7 @@ export function SizeColourReport() {
               {expanded === category ? "Hide Sub Categories" : "Drill into Sub Categories"}
             </button>
           </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Size</th>
-                  <th>Colour</th>
-                  <th>Sales Mix %</th>
-                  <th>SOH Mix %</th>
-                  <th>Diff (pp)</th>
-                  <th>Suggestion</th>
-                </tr>
-              </thead>
-              <SizeColourTableBody rows={catRows} />
-            </table>
-          </div>
+          <SizeColourTable rows={catRows} />
           {expanded === category && (
             <div style={{ background: "#fafbfc", padding: 10, marginBottom: 10 }}>
               <div className="export-row">
@@ -170,21 +200,7 @@ export function SizeColourReport() {
               {subGrouped.map(([subCategory, subCatRows]) => (
                 <Fragment key={subCategory}>
                   <div style={{ marginTop: 10, marginBottom: 4, fontSize: 13, fontWeight: 600 }}>{subCategory}</div>
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Size</th>
-                          <th>Colour</th>
-                          <th>Sales Mix %</th>
-                          <th>SOH Mix %</th>
-                          <th>Diff (pp)</th>
-                          <th>Suggestion</th>
-                        </tr>
-                      </thead>
-                      <SizeColourTableBody rows={subCatRows} />
-                    </table>
-                  </div>
+                  <SizeColourTable rows={subCatRows} />
                 </Fragment>
               ))}
               {subGrouped.length === 0 && <p className="muted">No sub categories found for this category.</p>}

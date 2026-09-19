@@ -14,8 +14,121 @@ import {
 } from "../../lib/profitability";
 import { exportToExcel, exportToPdf, fmtMoney, fmtNumber, fmtPct } from "../../lib/exportUtils";
 import { exportGroupedExcel, type GroupedExportColumn, type GroupedExportRow } from "../../lib/groupedExcelExport";
+import { useSortFilter, type SortFilterColumn } from "../../lib/tableSortFilter";
+import { SortFilterTh } from "../SortFilterTh";
 
 type GroupBy = "category" | "location";
+
+/** Columns for the category/sub-category Profitability table — dynamic on whether the Bazaar-inclusive metrics are shown alongside core. */
+function profitCategoryColumns(includeBazaar: boolean, inclByKey: Map<string, ProfitGroupRow>): SortFilterColumn<ProfitGroupRow>[] {
+  const cols: SortFilterColumn<ProfitGroupRow>[] = [
+    { key: "label", type: "text", value: (r) => r.label },
+    { key: "qtySoldCore", type: "number", value: (r) => r.qtySold },
+    { key: "marginPctCore", type: "number", value: (r) => r.marginPct },
+    { key: "marginValueCore", type: "number", value: (r) => r.marginValue },
+    { key: "sellThroughPctCore", type: "number", value: (r) => r.sellThroughPct },
+  ];
+  if (includeBazaar) {
+    cols.push(
+      { key: "qtySoldIncl", type: "number", value: (r) => inclByKey.get(r.key)?.qtySold ?? 0 },
+      { key: "marginPctIncl", type: "number", value: (r) => inclByKey.get(r.key)?.marginPct ?? null },
+      { key: "marginValueIncl", type: "number", value: (r) => inclByKey.get(r.key)?.marginValue ?? 0 },
+      { key: "sellThroughPctIncl", type: "number", value: (r) => inclByKey.get(r.key)?.sellThroughPct ?? null }
+    );
+  }
+  return cols;
+}
+
+const profitLocationColumns: SortFilterColumn<ProfitGroupRow>[] = [
+  { key: "label", type: "text", value: (r) => r.label },
+  { key: "qtySold", type: "number", value: (r) => r.qtySold },
+  { key: "salesExVat", type: "number", value: (r) => r.salesExVat },
+  { key: "costValue", type: "number", value: (r) => r.costValue },
+  { key: "marginPct", type: "number", value: (r) => r.marginPct },
+  { key: "marginValue", type: "number", value: (r) => r.marginValue },
+  { key: "soh", type: "number", value: (r) => r.soh },
+  { key: "sellThroughPct", type: "number", value: (r) => r.sellThroughPct },
+];
+
+/** Header row for the category/sub-category table (2 header rows: metric group labels, then per-metric labels). */
+function ProfitCategoryTableHead({
+  label,
+  includeBazaar,
+  sortFilter,
+}: {
+  label: string;
+  includeBazaar: boolean;
+  sortFilter: ReturnType<typeof useSortFilter<ProfitGroupRow>>;
+}) {
+  const th = (columnKey: string, text: string, type: "text" | "number" = "number", rowSpan?: number) => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={type}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={type === "number" ? "right" : "left"}
+      rowSpan={rowSpan}
+    />
+  );
+  return (
+    <thead>
+      <tr>
+        <th rowSpan={2}></th>
+        {th("label", label, "text", 2)}
+        <th colSpan={4}>{includeBazaar ? "Core retail" : "Core retail (locations 1–3)"}</th>
+        {includeBazaar && <th colSpan={4}>Incl. clearance (+ Bazaar)</th>}
+      </tr>
+      <tr>
+        {th("qtySoldCore", "Qty sold")}
+        {th("marginPctCore", "Margin %")}
+        {th("marginValueCore", "Margin value")}
+        {th("sellThroughPctCore", "Sell-through %")}
+        {includeBazaar && (
+          <>
+            {th("qtySoldIncl", "Qty sold")}
+            {th("marginPctIncl", "Margin %")}
+            {th("marginValueIncl", "Margin value")}
+            {th("sellThroughPctIncl", "Sell-through %")}
+          </>
+        )}
+      </tr>
+    </thead>
+  );
+}
+
+function LocationTableHead({ sortFilter }: { sortFilter: ReturnType<typeof useSortFilter<ProfitGroupRow>> }) {
+  const th = (columnKey: string, text: string, type: "text" | "number" = "number") => (
+    <SortFilterTh
+      columnKey={columnKey}
+      label={text}
+      type={type}
+      sortKey={sortFilter.sortKey}
+      sortDir={sortFilter.sortDir}
+      onSort={sortFilter.toggleSort}
+      filterValue={sortFilter.filters[columnKey] ?? ""}
+      onFilterChange={sortFilter.setFilter}
+      align={type === "number" ? "right" : "left"}
+    />
+  );
+  return (
+    <thead>
+      <tr>
+        {th("label", "Location", "text")}
+        {th("qtySold", "Qty sold")}
+        {th("salesExVat", "Sales ex-VAT")}
+        {th("costValue", "Cost")}
+        {th("marginPct", "Margin %")}
+        {th("marginValue", "Margin value")}
+        {th("soh", "SOH")}
+        {th("sellThroughPct", "Sell-through %")}
+      </tr>
+    </thead>
+  );
+}
 
 export function ProfitabilityReport() {
   const store = useAppStore();
@@ -66,6 +179,14 @@ export function ProfitabilityReport() {
     const bazaarRow = incl.find((r) => r.key === BAZAAR_LOCATION.id)!;
     return [...core, combinedIncl, bazaarRow];
   }, [groupBy, includeBazaar, facts, store.inv01Rows]);
+
+  const categoryInclByKey = useMemo(() => new Map(categoryIncl.map((r) => [r.key, r])), [categoryIncl]);
+  const subCategoryInclByKey = useMemo(() => new Map(subCategoryIncl.map((r) => [r.key, r])), [subCategoryIncl]);
+  const categoryColumns = useMemo(() => profitCategoryColumns(includeBazaar, categoryInclByKey), [includeBazaar, categoryInclByKey]);
+  const subCategoryColumns = useMemo(() => profitCategoryColumns(includeBazaar, subCategoryInclByKey), [includeBazaar, subCategoryInclByKey]);
+  const categorySortFilter = useSortFilter(categoryCore, categoryColumns);
+  const subCategorySortFilter = useSortFilter(subCategoryCore, subCategoryColumns);
+  const locationSortFilter = useSortFilter(locationRows, profitLocationColumns);
 
   function metricColumns(prefix: string, suffix: string) {
     return [
@@ -242,31 +363,10 @@ export function ProfitabilityReport() {
       {groupBy === "category" ? (
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th rowSpan={2}></th>
-                <th rowSpan={2}>Category</th>
-                <th colSpan={4}>{includeBazaar ? "Core retail" : "Core retail (locations 1–3)"}</th>
-                {includeBazaar && <th colSpan={4}>Incl. clearance (+ Bazaar)</th>}
-              </tr>
-              <tr>
-                <th>Qty sold</th>
-                <th>Margin %</th>
-                <th>Margin value</th>
-                <th>Sell-through %</th>
-                {includeBazaar && (
-                  <>
-                    <th>Qty sold</th>
-                    <th>Margin %</th>
-                    <th>Margin value</th>
-                    <th>Sell-through %</th>
-                  </>
-                )}
-              </tr>
-            </thead>
+            <ProfitCategoryTableHead label="Category" includeBazaar={includeBazaar} sortFilter={categorySortFilter} />
             <tbody>
-              {categoryCore.map((core) => {
-                const incl = categoryIncl.find((r) => r.key === core.key);
+              {categorySortFilter.rows.map((core) => {
+                const incl = categoryInclByKey.get(core.key);
                 return (
                   <Fragment key={core.key}>
                     <tr>
@@ -287,28 +387,13 @@ export function ProfitabilityReport() {
                           </div>
                           <div className="table-wrap">
                             <table>
-                              <thead>
-                                <tr>
-                                  <th>Sub Category</th>
-                                  <th>Qty sold</th>
-                                  <th>Margin %</th>
-                                  <th>Margin value</th>
-                                  <th>Sell-through %</th>
-                                  {includeBazaar && (
-                                    <>
-                                      <th>Qty sold</th>
-                                      <th>Margin %</th>
-                                      <th>Margin value</th>
-                                      <th>Sell-through %</th>
-                                    </>
-                                  )}
-                                </tr>
-                              </thead>
+                              <ProfitCategoryTableHead label="Sub Category" includeBazaar={includeBazaar} sortFilter={subCategorySortFilter} />
                               <tbody>
-                                {subCategoryCore.map((sub) => {
-                                  const subIncl = subCategoryIncl.find((r) => r.key === sub.key);
+                                {subCategorySortFilter.rows.map((sub) => {
+                                  const subIncl = subCategoryInclByKey.get(sub.key);
                                   return (
                                     <tr key={sub.key}>
+                                      <td></td>
                                       <ProfitRowCells row={sub} inclRow={subIncl} includeBazaar={includeBazaar} />
                                     </tr>
                                   );
@@ -316,6 +401,9 @@ export function ProfitabilityReport() {
                               </tbody>
                             </table>
                             {subCategoryCore.length === 0 && <p className="muted">No sub categories found for this category.</p>}
+                            {subCategoryCore.length > 0 && subCategorySortFilter.rows.length === 0 && (
+                              <p className="muted">No sub categories match the current filter.</p>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -327,9 +415,12 @@ export function ProfitabilityReport() {
           </table>
         </div>
       ) : (
-        <LocationTable rows={locationRows} />
+        <LocationTable rows={locationRows} sortFilter={locationSortFilter} />
       )}
       {groupBy === "category" && categoryCore.length === 0 && <p className="muted">No data found.</p>}
+      {groupBy === "category" && categoryCore.length > 0 && categorySortFilter.rows.length === 0 && (
+        <p className="muted">No categories match the current filter.</p>
+      )}
     </div>
   );
 }
@@ -354,24 +445,13 @@ function ProfitRowCells({ row, inclRow, includeBazaar }: { row: ProfitGroupRow; 
   );
 }
 
-function LocationTable({ rows }: { rows: ProfitGroupRow[] }) {
+function LocationTable({ rows, sortFilter }: { rows: ProfitGroupRow[]; sortFilter: ReturnType<typeof useSortFilter<ProfitGroupRow>> }) {
   return (
     <div className="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Location</th>
-            <th>Qty sold</th>
-            <th>Sales ex-VAT</th>
-            <th>Cost</th>
-            <th>Margin %</th>
-            <th>Margin value</th>
-            <th>SOH</th>
-            <th>Sell-through %</th>
-          </tr>
-        </thead>
+        <LocationTableHead sortFilter={sortFilter} />
         <tbody>
-          {rows.map((r) => (
+          {sortFilter.rows.map((r) => (
             <tr key={r.key} style={r.key.startsWith("combined") ? { fontWeight: 600, background: "#f8fafc" } : undefined}>
               <td>{r.label}</td>
               <td>{fmtNumber(r.qtySold)}</td>
@@ -385,6 +465,7 @@ function LocationTable({ rows }: { rows: ProfitGroupRow[] }) {
           ))}
         </tbody>
       </table>
+      {rows.length > 0 && sortFilter.rows.length === 0 && <p className="muted">No locations match the current filter.</p>}
     </div>
   );
 }
